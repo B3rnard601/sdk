@@ -6,6 +6,7 @@
  */
 
 import { DorisioClient, type ClientConfig } from '../client';
+import { ApiResponse } from '../types/api';
 import * as MockData from './mock-data';
 
 export interface SandboxConfig extends ClientConfig {
@@ -81,111 +82,47 @@ export class SandboxClient extends DorisioClient {
   /**
    * Override request method to return mocked responses
    */
-  override async request(method: string, path: string): Promise<any> {
+  override async request<T = unknown>(method: string, path: string): Promise<ApiResponse<T>> {
     await this.simulateLatency();
     this.checkError();
 
     const seed = this.seed + this.requestCounter++;
+    let data: unknown;
 
-    // Route to appropriate mock generator based on endpoint
     if (path.includes('/transactions/tip')) {
-      return {
-        success: true,
-        data: MockData.generateMockTip(seed),
-      };
+      data = MockData.generateMockTip(seed);
+    } else if (path.includes('/transactions/history')) {
+      data = MockData.generateMockTransactionHistory({ seed });
+    } else if (path.includes('/transactions/') && path.includes('/confirm')) {
+      data = { ...MockData.generateMockTransaction(seed), status: 'confirmed' };
+    } else if (path.includes('/transactions/')) {
+      data = MockData.generateMockTransaction(seed);
+    } else if (path.includes('/creators') && method === 'GET') {
+      data = MockData.generateMockCreators({ seed });
+    } else if (path.includes('/creators/')) {
+      data = MockData.generateMockCreator(seed);
+    } else if (path.includes('/wallet')) {
+      data = MockData.generateMockWallet(seed);
+    } else if (path.includes('/auth/login')) {
+      data = MockData.generateMockSession(seed);
+    } else if (path.includes('/auth/register')) {
+      data = MockData.generateMockSession(seed);
+    } else if (path.includes('/auth/validate')) {
+      data = MockData.generateMockSession(seed);
+    } else if (path.includes('/auth/challenge')) {
+      data = MockData.generateMockChallenge();
+    } else if (path.includes('/users/me')) {
+      data = MockData.generateMockUser(seed);
+    } else if (path.includes('/users')) {
+      data = MockData.generateMockUser(seed);
+    } else {
+      data = { id: 'mock-response' };
     }
 
-    if (path.includes('/transactions/history')) {
-      return {
-        success: true,
-        data: MockData.generateMockTransactionHistory({ seed }),
-      };
-    }
-
-    if (path.includes('/transactions/') && path.includes('/confirm')) {
-      return {
-        success: true,
-        data: {
-          ...MockData.generateMockTransaction(seed),
-          status: 'confirmed',
-        },
-      };
-    }
-
-    if (path.includes('/transactions/')) {
-      return {
-        success: true,
-        data: MockData.generateMockTransaction(seed),
-      };
-    }
-
-    if (path.includes('/creators') && method === 'GET') {
-      return {
-        success: true,
-        data: MockData.generateMockCreators({ seed }),
-      };
-    }
-
-    if (path.includes('/creators/')) {
-      return {
-        success: true,
-        data: MockData.generateMockCreator(seed),
-      };
-    }
-
-    if (path.includes('/wallet')) {
-      return {
-        success: true,
-        data: MockData.generateMockWallet(seed),
-      };
-    }
-
-    if (path.includes('/auth/login')) {
-      return {
-        success: true,
-        data: MockData.generateMockSession(seed),
-      };
-    }
-
-    if (path.includes('/auth/register')) {
-      return {
-        success: true,
-        data: MockData.generateMockSession(seed),
-      };
-    }
-
-    if (path.includes('/auth/validate')) {
-      return {
-        success: true,
-        data: MockData.generateMockSession(seed),
-      };
-    }
-
-    if (path.includes('/auth/challenge')) {
-      return {
-        success: true,
-        data: MockData.generateMockChallenge(),
-      };
-    }
-
-    if (path.includes('/users/me')) {
-      return {
-        success: true,
-        data: MockData.generateMockUser(seed),
-      };
-    }
-
-    if (path.includes('/users')) {
-      return {
-        success: true,
-        data: MockData.generateMockUser(seed),
-      };
-    }
-
-    // Fallback
     return {
       success: true,
-      data: { id: 'mock-response' },
+      data: data as T,
+      timestamp: new Date().toISOString(),
     };
   }
 

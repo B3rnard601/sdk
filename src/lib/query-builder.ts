@@ -4,12 +4,24 @@
  * Build clean queries with filtering, sorting, and pagination.
  */
 
+import type { ApiResponse } from '../types/api';
+import type { Creator, Transaction } from '../types/models';
+
+/** Minimal interface for any client that can make HTTP requests */
+export interface QueryClient {
+  request<T = unknown>(
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown
+  ): Promise<ApiResponse<T>>;
+}
+
 export interface QueryOptions {
   limit?: number;
   offset?: number;
   cursor?: string;
   sort?: 'asc' | 'desc';
-  filters?: Record<string, any>;
+  filters?: Record<string, string | number | boolean>;
 }
 
 export interface PaginationResult<T> {
@@ -28,79 +40,70 @@ export interface PaginationResult<T> {
 export function buildQueryString(options: QueryOptions = {}): string {
   const params = new URLSearchParams();
 
-  if (options.limit) {
-    params.append('limit', String(options.limit));
-  }
-  if (options.offset) {
-    params.append('offset', String(options.offset));
-  }
-  if (options.cursor) {
-    params.append('cursor', options.cursor);
-  }
-  if (options.sort) {
-    params.append('sort', options.sort);
-  }
+  if (options.limit) params.append('limit', String(options.limit));
+  if (options.offset) params.append('offset', String(options.offset));
+  if (options.cursor) params.append('cursor', options.cursor);
+  if (options.sort) params.append('sort', options.sort);
 
-  // Add filters
   if (options.filters) {
-    Object.entries(options.filters).forEach(([key, value]) => {
+    for (const [key, value] of Object.entries(options.filters)) {
       if (value !== null && value !== undefined) {
         params.append(`filter[${key}]`, String(value));
       }
-    });
+    }
   }
 
   const query = params.toString();
   return query ? `?${query}` : '';
 }
 
+interface PaginatedApiData {
+  page?: number;
+  pageSize?: number;
+  limit?: number;
+  total?: number;
+}
+
 /**
  * Parse pagination metadata from response
  */
-export function parsePaginationMeta(response: any): {
+export function parsePaginationMeta(response: PaginatedApiData): {
   page: number;
   pageSize: number;
   total: number;
   hasMore: boolean;
 } {
-  const page = response.page || 1;
-  const pageSize = response.pageSize || response.limit || 20;
-  const total = response.total || 0;
-  const hasMore = page * pageSize < total;
-
-  return { page, pageSize, total, hasMore };
+  const page = response.page ?? 1;
+  const pageSize = response.pageSize ?? response.limit ?? 20;
+  const total = response.total ?? 0;
+  return { page, pageSize, total, hasMore: page * pageSize < total };
 }
 
 /**
  * List tips with filtering and pagination
- *
- * @example
- * ```ts
- * const results = await listTips(client, {
- *   limit: 10,
- *   filters: { creatorId: 'xxx', status: 'confirmed' },
- * });
- *
- * console.log(results.items); // Array of tips
- * console.log(results.hasMore); // true if more pages exist
- * ```
  */
 export async function listTips(
-  client: any,
+  client: QueryClient,
   options: QueryOptions = {}
-): Promise<PaginationResult<any>> {
+): Promise<PaginationResult<Transaction>> {
   const query = buildQueryString(options);
-  const response = await client.request('GET', `/api/v1/transactions/history${query}`);
+  const response = await client.request<{
+    transactions?: Transaction[];
+    page?: number;
+    pageSize?: number;
+    total?: number;
+  }>('GET', `/api/v1/transactions/history${query}`);
 
   if (!response.success) {
     throw new Error(response.error?.message || 'Failed to fetch tips');
   }
 
-  const { page, pageSize, total, hasMore } = parsePaginationMeta(response.data);
-  const offset = options.offset || 0;
+  const data = response.data ?? {};
+  const { page, pageSize, total, hasMore } = parsePaginationMeta(data);
+  const offset = options.offset ?? 0;
 
   return {
-    items: response.data.transactions || [],
+    items: data.transactions ?? [],
     total,
     page,
     pageSize,
@@ -114,25 +117,28 @@ export async function listTips(
  * List creator tips with filtering and pagination
  */
 export async function listCreatorTips(
-  client: any,
+  client: QueryClient,
   creatorId: string,
   options: QueryOptions = {}
-): Promise<PaginationResult<any>> {
+): Promise<PaginationResult<Transaction>> {
   const query = buildQueryString(options);
-  const response = await client.request(
-    'GET',
-    `/api/v1/transactions/creator/${creatorId}${query}`
-  );
+  const response = await client.request<{
+    transactions?: Transaction[];
+    page?: number;
+    pageSize?: number;
+    total?: number;
+  }>('GET', `/api/v1/transactions/creator/${creatorId}${query}`);
 
   if (!response.success) {
     throw new Error(response.error?.message || 'Failed to fetch creator tips');
   }
 
-  const { page, pageSize, total, hasMore } = parsePaginationMeta(response.data);
-  const offset = options.offset || 0;
+  const data = response.data ?? {};
+  const { page, pageSize, total, hasMore } = parsePaginationMeta(data);
+  const offset = options.offset ?? 0;
 
   return {
-    items: response.data.transactions || [],
+    items: data.transactions ?? [],
     total,
     page,
     pageSize,
@@ -146,21 +152,27 @@ export async function listCreatorTips(
  * List creators with filtering and pagination
  */
 export async function listCreators(
-  client: any,
+  client: QueryClient,
   options: QueryOptions = {}
-): Promise<PaginationResult<any>> {
+): Promise<PaginationResult<Creator>> {
   const query = buildQueryString(options);
-  const response = await client.request('GET', `/api/v1/creators${query}`);
+  const response = await client.request<{
+    creators?: Creator[];
+    page?: number;
+    pageSize?: number;
+    total?: number;
+  }>('GET', `/api/v1/creators${query}`);
 
   if (!response.success) {
     throw new Error(response.error?.message || 'Failed to fetch creators');
   }
 
-  const { page, pageSize, total, hasMore } = parsePaginationMeta(response.data);
-  const offset = options.offset || 0;
+  const data = response.data ?? {};
+  const { page, pageSize, total, hasMore } = parsePaginationMeta(data);
+  const offset = options.offset ?? 0;
 
   return {
-    items: response.data.creators || [],
+    items: data.creators ?? [],
     total,
     page,
     pageSize,
@@ -174,9 +186,9 @@ export async function listCreators(
  * List verified creators
  */
 export async function listVerifiedCreators(
-  client: any,
+  client: QueryClient,
   options: QueryOptions = {}
-): Promise<PaginationResult<any>> {
+): Promise<PaginationResult<Creator>> {
   return listCreators(client, {
     ...options,
     filters: { ...options.filters, verified: true },
@@ -185,78 +197,49 @@ export async function listVerifiedCreators(
 
 /**
  * Paginate through results manually
- *
- * @example
- * ```ts
- * const paginator = createPaginator(client, 'tips', { limit: 10 });
- *
- * const page1 = await paginator.next();
- * const page2 = await paginator.next();
- * await paginator.previous();
- * ```
  */
 export class Paginator<T> {
   private offset = 0;
   private readonly pageSize: number;
   private readonly endpoint: string;
-  private readonly client: any;
-  private readonly filters?: Record<string, any>;
+  private readonly client: QueryClient;
+  private readonly filters?: Record<string, string | number | boolean>;
 
   constructor(
-    client: any,
+    client: QueryClient,
     endpoint: 'tips' | 'creators' | 'creator-tips',
     options: QueryOptions = {}
   ) {
     this.client = client;
     this.endpoint = endpoint;
-    this.pageSize = options.limit || 20;
+    this.pageSize = options.limit ?? 20;
     this.filters = options.filters;
   }
 
-  /**
-   * Fetch next page
-   */
   async next(): Promise<PaginationResult<T>> {
     const result = await this.fetchPage();
-    if (result.hasMore) {
-      this.offset += this.pageSize;
-    }
+    if (result.hasMore) this.offset += this.pageSize;
     return result;
   }
 
-  /**
-   * Fetch previous page
-   */
   async previous(): Promise<PaginationResult<T>> {
     this.offset = Math.max(0, this.offset - this.pageSize);
     return this.fetchPage();
   }
 
-  /**
-   * Jump to specific page
-   */
   async goto(pageNumber: number): Promise<PaginationResult<T>> {
     this.offset = (pageNumber - 1) * this.pageSize;
     return this.fetchPage();
   }
 
-  /**
-   * Reset to first page
-   */
   reset(): void {
     this.offset = 0;
   }
 
-  /**
-   * Current offset
-   */
   getOffset(): number {
     return this.offset;
   }
 
-  /**
-   * Fetch current page
-   */
   private async fetchPage(): Promise<PaginationResult<T>> {
     const options: QueryOptions = {
       limit: this.pageSize,
@@ -265,9 +248,9 @@ export class Paginator<T> {
     };
 
     if (this.endpoint === 'tips') {
-      return listTips(this.client, options) as any;
+      return listTips(this.client, options) as Promise<PaginationResult<T>>;
     } else if (this.endpoint === 'creators') {
-      return listCreators(this.client, options) as any;
+      return listCreators(this.client, options) as Promise<PaginationResult<T>>;
     } else {
       throw new Error(`Unknown endpoint: ${this.endpoint}`);
     }
@@ -278,7 +261,7 @@ export class Paginator<T> {
  * Create a paginator for iterating through results
  */
 export function createPaginator<T>(
-  client: any,
+  client: QueryClient,
   endpoint: 'tips' | 'creators' | 'creator-tips',
   options?: QueryOptions
 ): Paginator<T> {

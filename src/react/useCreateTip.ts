@@ -8,7 +8,7 @@
 import { useState, useCallback } from 'react';
 import { useDorisio } from './DorisioProvider';
 import { Transaction } from '../types/models';
-import type { CreateTipRequest, BuildTransactionRequest } from '../client/transactions';
+import type { CreateTipRequest, BuildTransactionRequest, BuildTransactionResponse, SubmitTransactionResponse } from '../client/transactions';
 
 export interface UseCreateTipState {
   data?: Transaction;
@@ -22,8 +22,8 @@ export interface UseCreateTipActions {
   buildTransaction: (
     tipId: string,
     data: BuildTransactionRequest
-  ) => Promise<{ transactionEnvelope: string; tipId: string; fee: number }>;
-  submitTransaction: (tipId: string, envelope: string) => Promise<any>;
+  ) => Promise<BuildTransactionResponse>;
+  submitTransaction: (tipId: string, envelope: string) => Promise<SubmitTransactionResponse>;
   confirmTransaction: (tipId: string) => Promise<Transaction>;
   reset: () => void;
 }

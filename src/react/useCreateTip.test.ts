@@ -171,7 +171,7 @@ describe('useCreateTip Hook', () => {
   describe('reset', () => {
     it('should reset hook state', async () => {
       const hook = {
-        state: { loading: false, step: 'idle', error: undefined },
+        state: { loading: false, step: 'idle', error: undefined as string | undefined },
         reset: function () {
           this.state = { loading: false, step: 'idle', error: undefined };
         },

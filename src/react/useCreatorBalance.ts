@@ -6,6 +6,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useDorisio } from './DorisioProvider';
+import { ApiCreatorEarningsSchema } from '../types/schemas';
 
 export interface CreatorBalance {
   totalEarnings: number;
@@ -74,24 +75,31 @@ export function useCreatorBalance(
         setCreatorId(id);
 
         // Fetch earnings data
-        const earningsResponse = await client.request('GET', `/api/v1/creators/${id}/earnings`);
+        const earningsResponse = await client.request<{
+          totalEarnings: number;
+          pendingBalance: number;
+          lumens?: string;
+          usdc?: string;
+        }>('GET', `/api/v1/creators/${id}/earnings`);
 
         if (!earningsResponse.success || !earningsResponse.data) {
           throw new Error(earningsResponse.error?.message || 'Failed to fetch creator earnings');
         }
 
+        const earningsSchema = ApiCreatorEarningsSchema.parse(earningsResponse.data);
+
         let balance: CreatorBalance = {
-          totalEarnings: (earningsResponse.data as any).totalEarnings || 0,
-          pendingBalance: (earningsResponse.data as any).pendingBalance || 0,
+          totalEarnings: earningsSchema.totalEarnings,
+          pendingBalance: earningsSchema.pendingBalance,
         };
 
         // Optionally fetch wallet balance
         if (walletId) {
           try {
-            const balanceResponse = await client.request<any>(
-              'GET',
-              `/api/v1/wallet/${walletId}/balance`
-            );
+            const balanceResponse = await client.request<{
+              lumens?: string;
+              usdc?: string;
+            }>('GET', `/api/v1/wallet/${walletId}/balance`);
 
             if (balanceResponse.success && balanceResponse.data) {
               const d = balanceResponse.data;

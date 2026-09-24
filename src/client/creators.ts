@@ -5,7 +5,7 @@
  */
 
 import { Creator, CreatorProfile } from '../types/models';
-import { normalizeCreator, normalizeCreators } from '../utils/normalizers';
+import { normalizeCreator, normalizeListCreatorsResponse } from '../utils/normalizers';
 import { DorisioClient } from '../client';
 
 /**
@@ -45,12 +45,7 @@ export async function listCreators(
     throw new Error('Failed to fetch creators list');
   }
 
-  return {
-    creators: normalizeCreators((response.data as any).creators || []),
-    total: (response.data as any).total || 0,
-    page: (response.data as any).page || 1,
-    pageSize: (response.data as any).pageSize || 20,
-  };
+  return normalizeListCreatorsResponse(response.data);
 }
 
 /**
@@ -66,13 +61,21 @@ export async function getCreatorProfile(
     throw new Error(`Failed to fetch creator profile: ${username}`);
   }
 
-  const creator = normalizeCreator(response.data);
+  const data = response.data as Record<string, unknown>;
+  const creator = normalizeCreator(data);
+
+  const rawStats = data['stats'];
+  const stats =
+    rawStats && typeof rawStats === 'object'
+      ? (rawStats as { totalTips?: number; averageTip?: number; lastTipDate?: string | null })
+      : undefined;
+
   return {
     ...creator,
-    stats: (response.data as any).stats || {
-      totalTips: 0,
-      averageTip: 0,
-      lastTipDate: null,
+    stats: {
+      totalTips: stats?.totalTips ?? 0,
+      averageTip: stats?.averageTip ?? 0,
+      lastTipDate: stats?.lastTipDate ?? null,
     },
   };
 }
