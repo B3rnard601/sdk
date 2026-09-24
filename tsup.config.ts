@@ -1,18 +1,33 @@
 import { defineConfig } from 'tsup';
 
-export default defineConfig({
-  entry: {
-    index: 'src/index.ts',
-    'react/index': 'src/react/index.ts',
-  },
-  format: ['esm', 'cjs'],
-  dts: {
-    resolve: true,
-    compilerOptions: {
-      skipLibCheck: true,
-      noImplicitAny: false,
+export default defineConfig([
+  {
+    entry: {
+      index: 'src/index.ts',
+      'react/index': 'src/react/index.ts',
     },
+    format: ['esm', 'cjs'],
+    dts: {
+      resolve: true,
+      compilerOptions: {
+        skipLibCheck: true,
+        noImplicitAny: false,
+      },
+    },
+    sourcemap: true,
+    clean: true,
   },
-  sourcemap: true,
-  clean: true,
-});
+  {
+    entry: {
+      'cli/create-app': 'src/cli/create-app.ts',
+    },
+    format: ['esm'],
+    dts: false,
+    sourcemap: true,
+    clean: false,
+    banner: {
+      js: '#!/usr/bin/env node',
+    },
+    shims: true,
+  },
+]);

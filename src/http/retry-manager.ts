@@ -13,6 +13,46 @@ export interface RetryConfig {
   backoffMultiplier: number;
 }
 
+export type IdempotencyOptions = {
+  method?: string;
+  isIdempotent?: boolean;
+  headers?: Record<string, string>;
+};
+
+/**
+ * Detect Idempotency-Key header (case-insensitive).
+ */
+export function hasIdempotencyKey(headers?: Record<string, string>): boolean {
+  if (!headers) {
+    return false;
+  }
+  return Object.keys(headers).some((key) => key.toLowerCase() === 'idempotency-key');
+}
+
+/**
+ * Determine whether a request is safe to retry.
+ *
+ * - GET / HEAD: always idempotent
+ * - POST / PUT / PATCH / DELETE: only when `isIdempotent: true` or Idempotency-Key is set
+ */
+export function isRequestIdempotent(options: IdempotencyOptions): boolean {
+  const method = (options.method || 'GET').toUpperCase();
+
+  if (method === 'GET' || method === 'HEAD') {
+    return true;
+  }
+
+  if (options.isIdempotent === true) {
+    return true;
+  }
+
+  if (hasIdempotencyKey(options.headers)) {
+    return true;
+  }
+
+  return false;
+}
+
 export class RetryManager {
   private config: RetryConfig;
 
@@ -69,9 +109,14 @@ export class RetryManager {
   }
 
   /**
-   * Determine if error is retryable
+   * Determine if error is retryable.
+   * When method/idempotency options are provided, non-idempotent calls never retry.
    */
-  static isRetryableError(error: unknown): boolean {
+  static isRetryableError(error: unknown, options?: IdempotencyOptions): boolean {
+    if (options && !isRequestIdempotent(options)) {
+      return false;
+    }
+
     if (error instanceof ApiError && error.statusCode) {
       // Retry on server errors (5xx) and rate limits (429), timeouts (408)
       return error.statusCode >= 500 || error.statusCode === 429 || error.statusCode === 408;
