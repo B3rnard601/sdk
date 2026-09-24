@@ -8,7 +8,17 @@
 import { HttpClient, RequestOptions } from './http/http-client';
 import { getConfig } from './config';
 import { ApiResponse } from './types/api';
-import { Creator, Wallet, Transaction, User } from './types/models';
+import { Creator, CreatorProfile, Transaction, TransactionHistory, TransactionStats, User, Wallet } from './types/models';
+import { BalanceInfo, AccountBalance } from './client/balance';
+import { SessionInfo } from './client/auth';
+import { VerificationStatus } from './client/verification';
+import {
+  BuildTransactionRequest,
+  BuildTransactionResponse,
+  CreateTipRequest,
+  SubmitTransactionRequest,
+  SubmitTransactionResponse,
+} from './client/transactions';
 import * as creatorMethods from './client/creators';
 import * as walletMethods from './client/wallets';
 import * as transactionMethods from './client/transactions';
@@ -16,6 +26,7 @@ import * as historyMethods from './client/history';
 import * as balanceMethods from './client/balance';
 import * as verificationMethods from './client/verification';
 import * as authMethods from './client/auth';
+import { CreateWalletRequest, UpdateWalletRequest } from './types/models';
 
 export interface ClientConfig {
   baseUrl: string;
@@ -182,59 +193,127 @@ export class DorisioClient {
     return this.mode === 'sandbox';
   }
 
+  // ---------------------------------------------------------------------------
   // Creator methods
+  // ---------------------------------------------------------------------------
   declare getCreator: (creatorId: string) => Promise<Creator>;
-  declare listCreators: (options?: any) => Promise<any>;
-  declare getCreatorProfile: (username: string) => Promise<any>;
-  declare verifyCreator: (creatorId: string) => Promise<Creator>;
+  declare listCreators: (options?: {
+    page?: number;
+    pageSize?: number;
+    verified?: boolean;
+  }) => Promise<{ creators: Creator[]; total: number; page: number; pageSize: number }>;
+  declare getCreatorProfile: (username: string) => Promise<CreatorProfile>;
+  declare verifyCreator: (creatorId: string, verified: boolean) => Promise<Creator>;
 
+  // ---------------------------------------------------------------------------
   // Wallet methods
-  declare connectWallet: (data: any) => Promise<Wallet>;
+  // ---------------------------------------------------------------------------
+  declare connectWallet: (data: CreateWalletRequest) => Promise<Wallet>;
   declare disconnectWallet: (walletId: string) => Promise<void>;
   declare getWallets: (userId: string) => Promise<Wallet[]>;
   declare getWallet: (walletId: string) => Promise<Wallet>;
-  declare updateWallet: (walletId: string, data: any) => Promise<Wallet>;
+  declare updateWallet: (walletId: string, data: UpdateWalletRequest) => Promise<Wallet>;
   declare verifyWallet: (walletId: string, proof: string) => Promise<Wallet>;
-  declare getWalletBalance: (walletId: string) => Promise<any>;
+  declare getWalletBalance: (walletId: string) => Promise<BalanceInfo>;
 
+  // ---------------------------------------------------------------------------
   // Transaction methods
-  declare createTip: (data: any) => Promise<Transaction>;
+  // ---------------------------------------------------------------------------
+  declare createTip: (data: CreateTipRequest) => Promise<Transaction>;
   declare getTipStatus: (transactionId: string) => Promise<Transaction>;
-  declare getTransactionHistory: (options?: any) => Promise<any>;
-  declare getCreatorTipsReceived: (creatorId: string, options?: any) => Promise<any>;
-  declare buildPaymentTransaction: (tipId: string, data: any) => Promise<any>;
-  declare submitPaymentTransaction: (tipId: string, data: any) => Promise<any>;
+  declare getTransactionHistory: (options?: {
+    page?: number;
+    pageSize?: number;
+  }) => Promise<TransactionHistory>;
+  declare getCreatorTipsReceived: (
+    creatorId: string,
+    options?: { page?: number; pageSize?: number }
+  ) => Promise<TransactionHistory>;
+  declare buildPaymentTransaction: (
+    tipId: string,
+    data: BuildTransactionRequest
+  ) => Promise<BuildTransactionResponse>;
+  declare submitPaymentTransaction: (
+    tipId: string,
+    data: SubmitTransactionRequest
+  ) => Promise<SubmitTransactionResponse>;
   declare checkTransactionConfirmation: (tipId: string) => Promise<Transaction>;
   declare updateTipStatus: (
     tipId: string,
     status: 'pending' | 'completed' | 'failed' | 'cancelled'
   ) => Promise<Transaction>;
 
+  // ---------------------------------------------------------------------------
   // History methods
-  declare getFullTransactionHistory: (options?: any) => Promise<any>;
-  declare getTransactionStats: (userId?: string) => Promise<any>;
-  declare getCreatorEarnings: (creatorId: string) => Promise<any>;
-  declare exportTransactionHistory: (options?: any) => Promise<string>;
+  // ---------------------------------------------------------------------------
+  declare getFullTransactionHistory: (options?: {
+    page?: number;
+    pageSize?: number;
+    startDate?: Date;
+    endDate?: Date;
+    status?: 'pending' | 'confirmed' | 'failed';
+  }) => Promise<TransactionHistory>;
+  declare getTransactionStats: (userId?: string) => Promise<TransactionStats>;
+  declare getCreatorEarnings: (creatorId: string) => Promise<{
+    totalEarnings: number;
+    pendingBalance: number;
+    confirmedBalance: number;
+    transactionCount: number;
+  }>;
+  declare exportTransactionHistory: (options?: {
+    format?: 'csv' | 'json';
+    startDate?: Date;
+    endDate?: Date;
+  }) => Promise<string>;
 
+  // ---------------------------------------------------------------------------
   // Balance methods
-  declare getBalance: (userId: string) => Promise<any>;
-  declare getCreatorPendingPayout: (creatorId: string) => Promise<any>;
+  // ---------------------------------------------------------------------------
+  declare getBalance: (userId: string) => Promise<AccountBalance>;
+  declare getCreatorPendingPayout: (creatorId: string) => Promise<{
+    pending: number;
+    nextPayoutDate?: string;
+    minimumThreshold: number;
+  }>;
   declare canPayout: (creatorId: string) => Promise<boolean>;
-  declare getAccountSummary: () => Promise<any>;
+  declare getAccountSummary: () => Promise<{
+    userId: string;
+    email: string;
+    role: string;
+    balance: AccountBalance;
+    totalTipsSent?: number;
+    totalEarnings?: number;
+    lastActivityDate?: string;
+  }>;
 
+  // ---------------------------------------------------------------------------
   // Verification methods
-  declare requestCreatorVerification: (creatorId: string, data: any) => Promise<any>;
-  declare getCreatorVerificationStatus: (creatorId: string) => Promise<any>;
-  declare getWalletVerificationStatus: (walletId: string) => Promise<any>;
-  declare requestWalletVerificationChallenge: (walletId: string) => Promise<any>;
+  // ---------------------------------------------------------------------------
+  declare requestCreatorVerification: (
+    creatorId: string,
+    data: { documentType: string; documentUrl?: string; description?: string }
+  ) => Promise<VerificationStatus>;
+  declare getCreatorVerificationStatus: (
+    creatorId: string
+  ) => Promise<VerificationStatus & { status: string }>;
+  declare getWalletVerificationStatus: (walletId: string) => Promise<VerificationStatus>;
+  declare requestWalletVerificationChallenge: (
+    walletId: string
+  ) => Promise<{ challenge: string; expiresIn: number }>;
   declare isTransactionVerified: (transactionId: string) => Promise<boolean>;
 
+  // ---------------------------------------------------------------------------
   // Auth methods
-  declare refreshSession: () => Promise<any>;
+  // ---------------------------------------------------------------------------
+  declare refreshSession: () => Promise<SessionInfo>;
   declare validateSession: () => Promise<User>;
   declare getCurrentUser: () => Promise<User>;
   declare logout: () => Promise<void>;
   declare isAuthenticated: () => Promise<boolean>;
-  declare extendSession: () => Promise<any>;
-  declare getSessionExpiry: () => Promise<any>;
+  declare extendSession: () => Promise<SessionInfo>;
+  declare getSessionExpiry: () => Promise<{
+    expiresAt: string;
+    expiresIn: number;
+    isExpired: boolean;
+  }>;
 }

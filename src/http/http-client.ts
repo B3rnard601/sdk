@@ -114,7 +114,12 @@ export class HttpClient {
         await this.interceptors.executeErrorInterceptors(lastError);
 
         // Don't retry on client errors (4xx)
-        if (error instanceof ApiError && error.statusCode >= 400 && error.statusCode < 500) {
+        if (
+          error instanceof ApiError &&
+          error.statusCode !== undefined &&
+          error.statusCode >= 400 &&
+          error.statusCode < 500
+        ) {
           throw error;
         }
 

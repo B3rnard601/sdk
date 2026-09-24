@@ -30,7 +30,7 @@ export function generateMockTransaction(seed = Math.random() * 10000) {
     id,
     amount: Math.floor(seededRandom(seed) * 500) + 1,
     currency: 'USD',
-    status: ['pending', 'confirmed', 'failed'][Math.floor(seededRandom(seed + 1) * 3)],
+    status: (['pending', 'confirmed', 'failed'] as const)[Math.floor(seededRandom(seed + 1) * 3)] ?? 'pending',
     creatorId: uuidv4(),
     senderId: uuidv4(),
     message: [
@@ -44,7 +44,7 @@ export function generateMockTransaction(seed = Math.random() * 10000) {
     transactionHash: `0x${Math.random().toString(16).substring(2).padEnd(64, '0')}`,
     createdAt,
     confirmedAt: ['confirmed', 'failed'].includes(
-      ['pending', 'confirmed', 'failed'][Math.floor(seededRandom(seed + 1) * 3)]
+      (['pending', 'confirmed', 'failed'] as const)[Math.floor(seededRandom(seed + 1) * 3)] ?? 'pending'
     )
       ? new Date(createdAt.getTime() + 5 * 60 * 1000)
       : null,
@@ -79,7 +79,7 @@ export function generateMockCreator(seed = Math.random() * 10000) {
     'Dave Musician',
     'Eve Designer',
   ];
-  const name = names[Math.floor(seededRandom(seed) * names.length)];
+  const name = names[Math.floor(seededRandom(seed) * names.length)] ?? 'Alice Creator';
 
   return {
     id: uuidv4(),
@@ -132,8 +132,8 @@ export function generateMockWallet(seed = Math.random() * 10000) {
 export function generateMockUser(seed = Math.random() * 10000) {
   const firstNames = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
   const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones'];
-  const firstName = firstNames[Math.floor(seededRandom(seed) * firstNames.length)];
-  const lastName = lastNames[Math.floor(seededRandom(seed + 1) * lastNames.length)];
+  const firstName = firstNames[Math.floor(seededRandom(seed) * firstNames.length)] ?? 'Alice';
+  const lastName = lastNames[Math.floor(seededRandom(seed + 1) * lastNames.length)] ?? 'Smith';
 
   return {
     id: uuidv4(),

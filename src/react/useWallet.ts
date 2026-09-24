@@ -21,7 +21,12 @@ export interface UseWalletState {
   error?: string;
   nonce?: string;
   challengeStep:
-    'idle' | 'nonce-generated' | 'challenge-ready' | 'verifying' | 'verified' | 'error';
+    | 'idle'
+    | 'nonce-generated'
+    | 'challenge-ready'
+    | 'verifying'
+    | 'verified'
+    | 'error';
 }
 
 export interface UseWalletActions {
@@ -32,7 +37,7 @@ export interface UseWalletActions {
   selectWallet: (wallet: Wallet) => void;
   unlinkWallet: (walletId: string) => Promise<void>;
   renameWallet: (walletId: string, name: string) => Promise<Wallet>;
-  getBalance: (walletId: string) => Promise<any>;
+  getBalance: (walletId: string) => Promise<{ available: number; pending: number; total: number }>;
   reset: () => void;
 }
 
@@ -55,6 +60,8 @@ export function useWallet(): UseWalletState & UseWalletActions {
 
   const generateNonce = useCallback(
     async (publicKey: string): Promise<{ nonce: string; expiresIn: number }> => {
+      setState((s) => ({ ...s, loading: true, error: undefined }));
+      setIsLoading(true);
       try {
         // Functional update avoids overwriting wallets/selection from a stale snapshot.
         setState((s) => ({ ...s, loading: true, error: undefined }));
@@ -65,7 +72,7 @@ export function useWallet(): UseWalletState & UseWalletActions {
         });
 
         if (!response.success || !response.data) {
-          throw new Error(response.error?.message || 'Failed to generate nonce');
+          throw new Error(response.error?.message ?? 'Failed to generate nonce');
         }
 
         const data = response.data;
@@ -80,7 +87,7 @@ export function useWallet(): UseWalletState & UseWalletActions {
           return next;
         });
 
-        return { nonce: data.nonce, expiresIn: data.expiresIn || 300 };
+        return { nonce: data.nonce, expiresIn: data.expiresIn ?? 300 };
       } catch (err) {
         const error = err instanceof Error ? err.message : 'Failed to generate nonce';
         setState((s) => {
@@ -91,6 +98,7 @@ export function useWallet(): UseWalletState & UseWalletActions {
         setError({ message: error, code: 'NONCE_GENERATION_ERROR' });
         throw err;
       } finally {
+        setState((s) => ({ ...s, loading: false }));
         setIsLoading(false);
       }
     },
@@ -99,6 +107,8 @@ export function useWallet(): UseWalletState & UseWalletActions {
 
   const getChallenge = useCallback(
     async (nonce: string): Promise<string> => {
+      setState((s) => ({ ...s, loading: true, error: undefined }));
+      setIsLoading(true);
       try {
         setState((s) => ({ ...s, loading: true, error: undefined }));
         setIsLoading(true);
@@ -115,7 +125,7 @@ export function useWallet(): UseWalletState & UseWalletActions {
         );
 
         if (!response.success || !response.data) {
-          throw new Error(response.error?.message || 'Failed to get challenge');
+          throw new Error(response.error?.message ?? 'Failed to get challenge');
         }
 
         const data = response.data;
@@ -129,7 +139,9 @@ export function useWallet(): UseWalletState & UseWalletActions {
           return next;
         });
 
-        return data.challenge || data;
+        setState((s) => ({ ...s, challengeStep: 'challenge-ready' }));
+
+        return challenge;
       } catch (err) {
         const error = err instanceof Error ? err.message : 'Failed to get challenge';
         setState((s) => {
@@ -140,6 +152,7 @@ export function useWallet(): UseWalletState & UseWalletActions {
         setError({ message: error, code: 'CHALLENGE_ERROR' });
         throw err;
       } finally {
+        setState((s) => ({ ...s, loading: false }));
         setIsLoading(false);
       }
     },
@@ -148,10 +161,9 @@ export function useWallet(): UseWalletState & UseWalletActions {
 
   const verifyWallet = useCallback(
     async (publicKey: string, nonce: string, signedTransaction: string): Promise<Wallet> => {
+      setState((s) => ({ ...s, loading: true, error: undefined, challengeStep: 'verifying' }));
+      setIsLoading(true);
       try {
-        setState((s) => ({ ...s, loading: true, error: undefined, challengeStep: 'verifying' }));
-        setIsLoading(true);
-
         const response = await client.request<Wallet>('POST', '/api/v1/wallet/verify', {
           publicKey,
           nonce,
@@ -159,7 +171,7 @@ export function useWallet(): UseWalletState & UseWalletActions {
         });
 
         if (!response.success || !response.data) {
-          throw new Error(response.error?.message || 'Failed to verify wallet');
+          throw new Error(response.error?.message ?? 'Failed to verify wallet');
         }
 
         const wallet = response.data;
@@ -188,6 +200,7 @@ export function useWallet(): UseWalletState & UseWalletActions {
         setError({ message: error, code: 'WALLET_VERIFICATION_ERROR' });
         throw err;
       } finally {
+        setState((s) => ({ ...s, loading: false }));
         setIsLoading(false);
       }
     },
@@ -196,19 +209,23 @@ export function useWallet(): UseWalletState & UseWalletActions {
 
   const listWallets = useCallback(
     async (includeBalance = false): Promise<Wallet[]> => {
+      setState((s) => ({ ...s, loading: true, error: undefined }));
+      setIsLoading(true);
       try {
-        setState((s) => ({ ...s, loading: true, error: undefined }));
-        setIsLoading(true);
-
         const query = includeBalance ? '?includeBalance=true' : '';
-        const response = await client.request<any>('GET', `/api/v1/wallet/list${query}`);
+        const response = await client.request<{ wallets?: Wallet[] } | Wallet[]>(
+          'GET',
+          `/api/v1/wallet/list${query}`
+        );
 
         if (!response.success || !response.data) {
-          throw new Error(response.error?.message || 'Failed to list wallets');
+          throw new Error(response.error?.message ?? 'Failed to list wallets');
         }
 
         const data = response.data;
-        const wallets = (data.wallets || data) as Wallet[];
+        const wallets: Wallet[] = Array.isArray(data)
+          ? data
+          : ((data as { wallets?: Wallet[] }).wallets ?? []);
 
         setState((s) => {
           const next = {
@@ -231,6 +248,7 @@ export function useWallet(): UseWalletState & UseWalletActions {
         setError({ message: error, code: 'LIST_WALLETS_ERROR' });
         throw err;
       } finally {
+        setState((s) => ({ ...s, loading: false }));
         setIsLoading(false);
       }
     },
@@ -247,14 +265,13 @@ export function useWallet(): UseWalletState & UseWalletActions {
 
   const unlinkWallet = useCallback(
     async (walletId: string): Promise<void> => {
+      setState((s) => ({ ...s, loading: true, error: undefined }));
+      setIsLoading(true);
       try {
-        setState((s) => ({ ...s, loading: true, error: undefined }));
-        setIsLoading(true);
-
         const response = await client.request('DELETE', `/api/v1/wallet/${walletId}`);
 
         if (!response.success) {
-          throw new Error(response.error?.message || 'Failed to unlink wallet');
+          throw new Error(response.error?.message ?? 'Failed to unlink wallet');
         }
 
         setState((s) => {
@@ -277,6 +294,7 @@ export function useWallet(): UseWalletState & UseWalletActions {
         setError({ message: error, code: 'UNLINK_WALLET_ERROR' });
         throw err;
       } finally {
+        setState((s) => ({ ...s, loading: false }));
         setIsLoading(false);
       }
     },
@@ -285,16 +303,17 @@ export function useWallet(): UseWalletState & UseWalletActions {
 
   const renameWallet = useCallback(
     async (walletId: string, name: string): Promise<Wallet> => {
+      setState((s) => ({ ...s, loading: true, error: undefined }));
+      setIsLoading(true);
       try {
-        setState((s) => ({ ...s, loading: true, error: undefined }));
-        setIsLoading(true);
-
-        const response = await client.request<Wallet>('PATCH', `/api/v1/wallet/${walletId}/name`, {
-          name,
-        });
+        const response = await client.request<Wallet>(
+          'PATCH',
+          `/api/v1/wallet/${walletId}/name`,
+          { name }
+        );
 
         if (!response.success || !response.data) {
-          throw new Error(response.error?.message || 'Failed to rename wallet');
+          throw new Error(response.error?.message ?? 'Failed to rename wallet');
         }
 
         const updatedWallet = response.data;
@@ -321,6 +340,7 @@ export function useWallet(): UseWalletState & UseWalletActions {
         setError({ message: error, code: 'RENAME_WALLET_ERROR' });
         throw err;
       } finally {
+        setState((s) => ({ ...s, loading: false }));
         setIsLoading(false);
       }
     },
@@ -328,15 +348,17 @@ export function useWallet(): UseWalletState & UseWalletActions {
   );
 
   const getBalance = useCallback(
-    async (walletId: string): Promise<any> => {
+    async (walletId: string): Promise<{ available: number; pending: number; total: number }> => {
+      setState((s) => ({ ...s, loading: true, error: undefined }));
+      setIsLoading(true);
       try {
-        setState((s) => ({ ...s, loading: true, error: undefined }));
-        setIsLoading(true);
-
-        const response = await client.request<any>('GET', `/api/v1/wallet/${walletId}/balance`);
+        const response = await client.request<{ available: number; pending: number; total: number }>(
+          'GET',
+          `/api/v1/wallet/${walletId}/balance`
+        );
 
         if (!response.success || !response.data) {
-          throw new Error(response.error?.message || 'Failed to fetch balance');
+          throw new Error(response.error?.message ?? 'Failed to fetch balance');
         }
 
         setState((s) => {
@@ -355,6 +377,7 @@ export function useWallet(): UseWalletState & UseWalletActions {
         setError({ message: error, code: 'GET_BALANCE_ERROR' });
         throw err;
       } finally {
+        setState((s) => ({ ...s, loading: false }));
         setIsLoading(false);
       }
     },

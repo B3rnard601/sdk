@@ -162,3 +162,33 @@ export interface TransactionStats {
   averageAmount: number;
   lastTransactionDate: string | null;
 }
+
+/**
+ * Paginated list of creators response
+ */
+export interface CreatorListResponse {
+  creators: Creator[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/**
+ * Paginated list of wallets response
+ */
+export interface WalletListResponse {
+  wallets: Wallet[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/**
+ * Creator earnings summary response
+ */
+export interface CreatorEarningsResponse {
+  totalEarnings: number;
+  pendingBalance: number;
+  confirmedBalance: number;
+  transactionCount: number;
+}

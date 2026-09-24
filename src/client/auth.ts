@@ -5,6 +5,7 @@
  */
 
 import { User } from '../types/models';
+import { ApiSessionExpirySchema, ApiSessionSchema } from '../types/schemas';
 import { normalizeUser } from '../utils/normalizers';
 import { DorisioClient } from '../client';
 
@@ -26,19 +27,18 @@ export async function refreshSession(this: DorisioClient): Promise<SessionInfo> 
     throw new Error('Failed to refresh session');
   }
 
-  const data = response.data as any;
+  const parsed = ApiSessionSchema.parse(response.data);
 
-  // Update client token if provided
-  if (data.token) {
-    this.setToken(data.token);
+  if (parsed.token) {
+    this.setToken(parsed.token);
   }
 
   return {
-    userId: data.userId,
-    email: data.email,
-    token: data.token,
-    expiresAt: data.expiresAt,
-    expiresIn: data.expiresIn || 3600,
+    userId: parsed.userId,
+    email: parsed.email,
+    token: parsed.token,
+    expiresAt: parsed.expiresAt,
+    expiresIn: parsed.expiresIn,
   };
 }
 
@@ -75,7 +75,6 @@ export async function logout(this: DorisioClient): Promise<void> {
   try {
     await this.request('POST', '/auth/logout');
   } finally {
-    // Clear token regardless of response
     this.clearToken();
   }
 }
@@ -102,19 +101,18 @@ export async function extendSession(this: DorisioClient): Promise<SessionInfo> {
     throw new Error('Failed to extend session');
   }
 
-  const data = response.data as any;
+  const parsed = ApiSessionSchema.parse(response.data);
 
-  // Update token if provided
-  if (data.token) {
-    this.setToken(data.token);
+  if (parsed.token) {
+    this.setToken(parsed.token);
   }
 
   return {
-    userId: data.userId,
-    email: data.email,
-    token: data.token,
-    expiresAt: data.expiresAt,
-    expiresIn: data.expiresIn || 3600,
+    userId: parsed.userId,
+    email: parsed.email,
+    token: parsed.token,
+    expiresAt: parsed.expiresAt,
+    expiresIn: parsed.expiresIn,
   };
 }
 
@@ -132,13 +130,12 @@ export async function getSessionExpiry(this: DorisioClient): Promise<{
     throw new Error('Failed to fetch session expiry');
   }
 
-  const d = response.data as any;
-  const expiresIn = Math.max(0, d.expiresIn || 0);
-  const isExpired = expiresIn <= 0;
+  const parsed = ApiSessionExpirySchema.parse(response.data);
+  const expiresIn = Math.max(0, parsed.expiresIn);
 
   return {
-    expiresAt: d.expiresAt,
+    expiresAt: parsed.expiresAt,
     expiresIn,
-    isExpired,
+    isExpired: expiresIn <= 0,
   };
 }

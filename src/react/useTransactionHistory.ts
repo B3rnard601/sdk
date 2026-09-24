@@ -118,13 +118,19 @@ export function useTransactionHistory(
         }
 
         setState((s) => {
-          const d = response.data as any;
+          const d = response.data as {
+            tips?: unknown[];
+            transactions?: unknown[];
+            total?: number;
+            page?: number;
+            pageSize?: number;
+          };
           return {
             ...s,
-            transactions: d.tips || [],
-            total: d.total || 0,
-            page: d.page || page,
-            pageSize: d.pageSize || pageSize,
+            transactions: (d.tips ?? d.transactions ?? []) as typeof s.transactions,
+            total: d.total ?? 0,
+            page: d.page ?? page,
+            pageSize: d.pageSize ?? pageSize,
             lastUpdated: Date.now(),
             loading: false,
           };
@@ -136,7 +142,8 @@ export function useTransactionHistory(
         setCreatorId(resolvedCreator);
         creatorIdRef.current = resolvedCreator;
 
-        return (response.data as any).tips || [];
+        const d = response.data as { tips?: unknown[]; transactions?: unknown[] };
+        return ((d.tips ?? d.transactions ?? []) as import('../types/models').Transaction[]);
       } catch (err) {
         const error = err instanceof Error ? err.message : 'Failed to fetch history';
         setState((s) => ({ ...s, error, loading: false }));

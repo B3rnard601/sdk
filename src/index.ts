@@ -44,6 +44,9 @@ export type {
   TransactionWithDetails,
   TransactionHistory,
   TransactionStats,
+  CreatorListResponse,
+  WalletListResponse,
+  CreatorEarningsResponse,
   TipRequest,
   CreateTipRequest,
 } from './types';
