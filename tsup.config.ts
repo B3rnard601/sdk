@@ -6,14 +6,17 @@ export default defineConfig({
     'react/index': 'src/react/index.ts',
     webhook: 'src/webhook.ts',
   },
-  format: ['esm', 'cjs'],
-  dts: {
-    resolve: true,
-    compilerOptions: {
-      skipLibCheck: true,
-      noImplicitAny: false,
+  {
+    entry: {
+      'cli/create-app': 'src/cli/create-app.ts',
     },
+    format: ['esm'],
+    dts: false,
+    sourcemap: true,
+    clean: false,
+    banner: {
+      js: '#!/usr/bin/env node',
+    },
+    shims: true,
   },
-  sourcemap: true,
-  clean: true,
-});
+]);

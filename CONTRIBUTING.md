@@ -89,3 +89,29 @@ pm test\
 ## Code of Conduct
 
 By participating in this project, you agree to abide by our Code of Conduct. Please read CODE_OF_CONDUCT.md for details.
+
+
+## CLI scaffolding (`dorisio init`)
+
+Scaffold Dorisio into an existing app (runs in the current working directory):
+
+```bash
+npx dorisio init
+# or non-interactive:
+npx dorisio init --framework react --auth jwt --database none --yes
+```
+
+Prompts (or flags):
+
+- **Framework**: `react` / `next` / `vanilla`
+- **Authentication**: `jwt` / `session` / `custom`
+- **Database**: `none` / `postgres` / `sqlite`
+
+Generated files:
+
+- `src/config/dorisio.ts` — client factory + config
+- `src/hooks/useCreator.ts` (React/Next) or `src/lib/creators.ts` (vanilla)
+- `.env.example` and `.env.local`
+- `DORISIO_SETUP.md` — short next-steps guide
+
+The `create-dorisio-app` bin is an alias for the same CLI entrypoint.
