@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "create-dorisio-app": "./dist/cli/create-app.js"
+    "create-dorisio-app": "./dist/cli/create-app.js",
+    "dorisio": "./dist/cli/create-app.js"
   },
   "exports": {
     ".": {
