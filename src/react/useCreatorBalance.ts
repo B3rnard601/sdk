@@ -6,6 +6,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useDorisio } from './DorisioProvider';
+import { logRejection, runSafely } from './safe-async';
 
 export interface CreatorBalance {
   totalEarnings: number;
@@ -31,7 +32,9 @@ export interface UseCreatorBalanceActions {
  * useCreatorBalance
  *
  * Fetches creator earnings and wallet balance information.
- * Optionally auto-fetches on mount if creatorId is provided.
+ * Optionally auto-fetches on mount if creatorId is provided. Auto-fetch failures are
+ * exposed via `error` and logged to the console rather than raised as unhandled
+ * rejections; manual `fetchBalance()` / `refetch()` calls reject with the original error.
  *
  * @example
  * ```tsx
@@ -67,63 +70,54 @@ export function useCreatorBalance(
   const [creatorId, setCreatorId] = useState(initialCreatorId);
 
   const fetchBalance = useCallback(
-    async (id: string, walletId?: string): Promise<CreatorBalance> => {
-      try {
-        setState((s) => ({ ...s, loading: true, error: undefined }));
-        setIsLoading(true);
-        setCreatorId(id);
+    (id: string, walletId?: string): Promise<CreatorBalance> =>
+      runSafely(
+        { setError, setIsLoading },
+        {
+          code: 'FETCH_BALANCE_ERROR',
+          fallbackMessage: 'Failed to fetch balance',
+          onStart: () => {
+            setState((s) => ({ ...s, loading: true, error: undefined }));
+            setCreatorId(id);
+          },
+          onError: (error) => setState((s) => ({ ...s, error, loading: false })),
+        },
+        async () => {
+          // Fetch earnings data
+          const earningsResponse = await client.request('GET', `/api/v1/creators/${id}/earnings`);
 
-        // Fetch earnings data
-        const earningsResponse = await client.request('GET', `/api/v1/creators/${id}/earnings`);
-
-        if (!earningsResponse.success || !earningsResponse.data) {
-          throw new Error(earningsResponse.error?.message || 'Failed to fetch creator earnings');
-        }
-
-        let balance: CreatorBalance = {
-          totalEarnings: (earningsResponse.data as any).totalEarnings || 0,
-          pendingBalance: (earningsResponse.data as any).pendingBalance || 0,
-        };
-
-        // Optionally fetch wallet balance
-        if (walletId) {
-          try {
-            const balanceResponse = await client.request<any>(
-              'GET',
-              `/api/v1/wallet/${walletId}/balance`
-            );
-
-            if (balanceResponse.success && balanceResponse.data) {
-              const d = balanceResponse.data;
-              balance = {
-                ...balance,
-                lumens: d.lumens,
-                usdc: d.usdc,
-              };
-            }
-          } catch (err) {
-            // Silently fail wallet balance fetch
-            console.warn('Failed to fetch wallet balance:', err);
+          if (!earningsResponse.success || !earningsResponse.data) {
+            throw new Error(earningsResponse.error?.message || 'Failed to fetch creator earnings');
           }
+
+          let balance: CreatorBalance = {
+            totalEarnings: (earningsResponse.data as any).totalEarnings || 0,
+            pendingBalance: (earningsResponse.data as any).pendingBalance || 0,
+          };
+
+          // Optionally fetch wallet balance
+          if (walletId) {
+            try {
+              const balanceResponse = await client.request<any>(
+                'GET',
+                `/api/v1/wallet/${walletId}/balance`
+              );
+
+              if (balanceResponse.success && balanceResponse.data) {
+                const d = balanceResponse.data;
+                balance = { ...balance, lumens: d.lumens, usdc: d.usdc };
+              }
+            } catch (err) {
+              // Wallet balance is optional; earnings still succeed.
+              console.warn('Failed to fetch wallet balance:', err);
+            }
+          }
+
+          setState((s) => ({ ...s, balance, lastUpdated: Date.now(), loading: false }));
+
+          return balance;
         }
-
-        setState((s) => ({
-          ...s,
-          balance,
-          lastUpdated: Date.now(),
-          loading: false,
-        }));
-
-        return balance;
-      } catch (err) {
-        const error = err instanceof Error ? err.message : 'Failed to fetch balance';
-        setState((s) => ({ ...s, error, loading: false }));
-        setError({ message: error, code: 'FETCH_BALANCE_ERROR' });
-        throw err;
-      } finally {
-        setIsLoading(false);
-      }
-    },
+      ),
     [client, setError, setIsLoading]
   );
 
@@ -143,7 +137,8 @@ export function useCreatorBalance(
   // Auto-fetch on mount
   useEffect(() => {
     if (autoFetch && initialCreatorId) {
-      fetchBalance(initialCreatorId);
+      // Error is already reflected in hook state; just make sure it can't go unhandled.
+      logRejection(fetchBalance(initialCreatorId), 'useCreatorBalance auto-fetch');
     }
   }, []);
 

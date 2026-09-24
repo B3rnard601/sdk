@@ -6,6 +6,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useDorisio } from './DorisioProvider';
+import { logRejection, runSafely } from './safe-async';
 import { Transaction } from '../types/models';
 
 export interface TransactionHistoryOptions {
@@ -37,7 +38,9 @@ export interface UseTransactionHistoryActions {
  * useTransactionHistory
  *
  * Manages transaction history with built-in pagination support.
- * Can fetch user's tip history or creator's received tips.
+ * Can fetch user's tip history or creator's received tips. Auto-fetch failures are
+ * exposed via `error` and logged rather than raised as unhandled rejections; manual
+ * calls reject with the original error.
  *
  * @example
  * ```tsx
@@ -82,27 +85,31 @@ export function useTransactionHistory(
   const [lastOptions, setLastOptions] = useState(initialOptions);
 
   const fetchHistory = useCallback(
-    async (options?: TransactionHistoryOptions, creator?: string): Promise<Transaction[]> => {
-      try {
-        setState((s) => ({ ...s, loading: true, error: undefined }));
-        setIsLoading(true);
+    (options?: TransactionHistoryOptions, creator?: string): Promise<Transaction[]> =>
+      runSafely(
+        { setError, setIsLoading },
+        {
+          code: 'FETCH_HISTORY_ERROR',
+          fallbackMessage: 'Failed to fetch history',
+          onStart: () => setState((s) => ({ ...s, loading: true, error: undefined })),
+          onError: (error) => setState((s) => ({ ...s, error, loading: false })),
+        },
+        async () => {
+          const page = options?.page || state.page;
+          const pageSize = options?.pageSize || state.pageSize;
+          const endpoint = creator
+            ? `/api/v1/transactions/creator/${creator}`
+            : '/api/v1/transactions/history';
+          const query = `?page=${page}&pageSize=${pageSize}`;
 
-        const page = options?.page || state.page;
-        const pageSize = options?.pageSize || state.pageSize;
-        const endpoint = creator
-          ? `/api/v1/transactions/creator/${creator}`
-          : '/api/v1/transactions/history';
-        const query = `?page=${page}&pageSize=${pageSize}`;
+          const response = await client.request('GET', `${endpoint}${query}`);
 
-        const response = await client.request('GET', `${endpoint}${query}`);
+          if (!response.success || !response.data) {
+            throw new Error(response.error?.message || 'Failed to fetch transaction history');
+          }
 
-        if (!response.success || !response.data) {
-          throw new Error(response.error?.message || 'Failed to fetch transaction history');
-        }
-
-        setState((s) => {
           const d = response.data as any;
-          return {
+          setState((s) => ({
             ...s,
             transactions: d.tips || [],
             total: d.total || 0,
@@ -110,22 +117,14 @@ export function useTransactionHistory(
             pageSize: d.pageSize || pageSize,
             lastUpdated: Date.now(),
             loading: false,
-          };
-        });
+          }));
 
-        setLastOptions({ page, pageSize });
-        setCreatorId(creator);
+          setLastOptions({ page, pageSize });
+          setCreatorId(creator);
 
-        return (response.data as any).tips || [];
-      } catch (err) {
-        const error = err instanceof Error ? err.message : 'Failed to fetch history';
-        setState((s) => ({ ...s, error, loading: false }));
-        setError({ message: error, code: 'FETCH_HISTORY_ERROR' });
-        throw err;
-      } finally {
-        setIsLoading(false);
-      }
-    },
+          return d.tips || [];
+        }
+      ),
     [client, setError, setIsLoading, state.page, state.pageSize]
   );
 
@@ -178,7 +177,8 @@ export function useTransactionHistory(
   // Auto-fetch on mount
   useEffect(() => {
     if (autoFetch) {
-      fetchHistory(initialOptions);
+      // Error is already reflected in hook state; just make sure it can't go unhandled.
+      logRejection(fetchHistory(initialOptions), 'useTransactionHistory auto-fetch');
     }
   }, []);
 

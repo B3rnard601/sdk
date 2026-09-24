@@ -3,11 +3,18 @@
  *
  * Hook for creating and submitting tips with Stellar transaction support.
  * Handles the full tip lifecycle: create, build transaction, submit, and confirm.
+ *
+ * Error handling: every operation resolves with its result or rejects with the
+ * original error. Failures also set `error`/`step: 'error'` on the hook and are
+ * reported through the provider's `setError`; a throwing `onError` handler or
+ * `setError` never masks the original error, and loading state is always cleared.
+ * Always `await` the actions inside try/catch (or `.catch()`) in event handlers.
  */
 
 import { useState, useCallback } from 'react';
 import { useDorisio } from './DorisioProvider';
 import { Transaction } from '../types/models';
+import { runSafely } from './safe-async';
 import type { CreateTipRequest, BuildTransactionRequest } from '../client/transactions';
 
 export interface UseCreateTipState {
@@ -81,115 +88,85 @@ export function useCreateTip(): UseCreateTipState & UseCreateTipActions {
     step: 'idle',
   });
 
+  const start = (step: UseCreateTipState['step']) => () =>
+    setState((s) => ({ ...s, loading: true, step, error: undefined }));
+  const fail = (error: string) => setState((s) => ({ ...s, error, step: 'error', loading: false }));
+
   const createTip = useCallback(
-    async (data: CreateTipRequest): Promise<Transaction> => {
-      try {
-        setState((s) => ({ ...s, loading: true, step: 'creating', error: undefined }));
-        setIsLoading(true);
-
-        const tip = await client.createTip(data);
-
-        setState((s) => ({
-          ...s,
-          data: tip,
-          step: 'idle',
-          loading: false,
-        }));
-
-        return tip;
-      } catch (err) {
-        const error = err instanceof Error ? err.message : 'Failed to create tip';
-        setState((s) => ({ ...s, error, step: 'error', loading: false }));
-        setError({ message: error, code: 'CREATE_TIP_ERROR' });
-        throw err;
-      } finally {
-        setIsLoading(false);
-      }
-    },
+    (data: CreateTipRequest): Promise<Transaction> =>
+      runSafely(
+        { setError, setIsLoading },
+        {
+          code: 'CREATE_TIP_ERROR',
+          fallbackMessage: 'Failed to create tip',
+          onStart: start('creating'),
+          onError: fail,
+        },
+        async () => {
+          const tip = await client.createTip(data);
+          setState((s) => ({ ...s, data: tip, step: 'idle', loading: false }));
+          return tip;
+        }
+      ),
     [client, setError, setIsLoading]
   );
 
   const buildTransaction = useCallback(
-    async (tipId: string, data: BuildTransactionRequest) => {
-      try {
-        setState((s) => ({ ...s, loading: true, step: 'building', error: undefined }));
-        setIsLoading(true);
-
-        const result = await client.buildPaymentTransaction(tipId, data);
-
-        setState((s) => ({
-          ...s,
-          step: 'idle',
-          loading: false,
-        }));
-
-        return result;
-      } catch (err) {
-        const error = err instanceof Error ? err.message : 'Failed to build transaction';
-        setState((s) => ({ ...s, error, step: 'error', loading: false }));
-        setError({ message: error, code: 'BUILD_TRANSACTION_ERROR' });
-        throw err;
-      } finally {
-        setIsLoading(false);
-      }
-    },
+    (tipId: string, data: BuildTransactionRequest) =>
+      runSafely(
+        { setError, setIsLoading },
+        {
+          code: 'BUILD_TRANSACTION_ERROR',
+          fallbackMessage: 'Failed to build transaction',
+          onStart: start('building'),
+          onError: fail,
+        },
+        async () => {
+          const result = await client.buildPaymentTransaction(tipId, data);
+          setState((s) => ({ ...s, step: 'idle', loading: false }));
+          return result;
+        }
+      ),
     [client, setError, setIsLoading]
   );
 
   const submitTransaction = useCallback(
-    async (tipId: string, envelope: string) => {
-      try {
-        setState((s) => ({ ...s, loading: true, step: 'submitting', error: undefined }));
-        setIsLoading(true);
-
-        const result = await client.submitPaymentTransaction(tipId, {
-          transactionEnvelope: envelope,
-        });
-
-        setState((s) => ({
-          ...s,
-          step: 'idle',
-          loading: false,
-        }));
-
-        return result;
-      } catch (err) {
-        const error = err instanceof Error ? err.message : 'Failed to submit transaction';
-        setState((s) => ({ ...s, error, step: 'error', loading: false }));
-        setError({ message: error, code: 'SUBMIT_TRANSACTION_ERROR' });
-        throw err;
-      } finally {
-        setIsLoading(false);
-      }
-    },
+    (tipId: string, envelope: string) =>
+      runSafely(
+        { setError, setIsLoading },
+        {
+          code: 'SUBMIT_TRANSACTION_ERROR',
+          fallbackMessage: 'Failed to submit transaction',
+          onStart: start('submitting'),
+          onError: fail,
+        },
+        async () => {
+          const result = await client.submitPaymentTransaction(tipId, {
+            transactionEnvelope: envelope,
+          });
+          setState((s) => ({ ...s, step: 'idle', loading: false }));
+          return result;
+        }
+      ),
     [client, setError, setIsLoading]
   );
 
   const confirmTransaction = useCallback(
-    async (tipId: string): Promise<Transaction> => {
-      try {
-        setState((s) => ({ ...s, loading: true, step: 'confirming', error: undefined }));
-        setIsLoading(true);
-
-        const tip = await client.checkTransactionConfirmation(tipId);
-
-        setState((s) => ({
-          ...s,
-          data: tip,
-          step: 'success',
-          loading: false,
-        }));
-
-        return tip;
-      } catch (err) {
-        const error = err instanceof Error ? err.message : 'Failed to confirm transaction';
-        setState((s) => ({ ...s, error, step: 'error', loading: false }));
-        setError({ message: error, code: 'CONFIRM_TRANSACTION_ERROR' });
-        throw err;
-      } finally {
-        setIsLoading(false);
-      }
-    },
+    (tipId: string): Promise<Transaction> =>
+      runSafely(
+        { setError, setIsLoading },
+        {
+          code: 'CONFIRM_TRANSACTION_ERROR',
+          fallbackMessage: 'Failed to confirm transaction',
+          onStart: start('confirming'),
+          onError: fail,
+        },
+        async () => {
+          const tip = await client.checkTransactionConfirmation(tipId);
+          setState((s) => ({ ...s, data: tip, step: 'success', loading: false }));
+          return tip;
+        }
+      ),
     [client, setError, setIsLoading]
   );
 
