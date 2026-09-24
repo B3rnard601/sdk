@@ -113,6 +113,50 @@ export function App() {
 }
 ```
 
+
+## Sandbox / Mock Mode
+
+Test the SDK offline without hitting testnet or the Dorisio API. When `mode: "sandbox"` is set, `HttpClient` bypasses `fetch` and returns deterministic mock responses for every client method.
+
+```typescript
+import { DorisioClient } from 'dorisio-sdk';
+
+const client = new DorisioClient({
+  baseUrl: 'https://api.dorisio.com',
+  token: 'test-token',
+  mode: 'sandbox', // no network calls
+  sandboxSeed: 42, // optional — same seed => same mocks
+});
+
+const tip = await client.createTip({
+  creatorId: 'mock-creator-123',
+  amount: 50,
+  message: 'Test tip',
+});
+
+// Inspect what the sandbox handled
+console.log(client.getSandboxHistory());
+
+// Toggle to live without recreating the client
+client.setMode('live');
+```
+
+Or use the dedicated helper:
+
+```typescript
+import { createSandboxClient } from 'dorisio-sdk';
+
+const client = createSandboxClient({ seed: 42, latency: 0 });
+await client.getCurrentUser();
+```
+
+### Acceptance checklist
+
+- `DorisioClient({ mode: 'sandbox' })` works with zero network calls
+- Client methods return deterministic mocks (seeded)
+- `client.getSandboxHistory()` / `clearSandboxHistory()` for test assertions
+- `client.setMode('sandbox' | 'live')` toggles without recreating the client
+
 ## Documentation
 
 ### API Reference

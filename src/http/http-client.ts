@@ -2,12 +2,15 @@
  * HTTP Client
  *
  * Base HTTP client for making requests to the backend API.
- * Handles request/response formatting, retries, and error handling.
+ * Handles request/response formatting, retries, error handling,
+ * and sandbox/mock mode for offline testing.
  */
 
 import { ApiError } from '../types';
 import { InterceptorManager } from './interceptors';
-import { isRequestIdempotent } from './retry-manager';
+import { MockRouter, type SandboxHistoryEntry } from '../sandbox/mock-router';
+
+export type HttpClientMode = 'live' | 'sandbox' | 'production';
 
 export interface RequestOptions {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -15,12 +18,25 @@ export interface RequestOptions {
   body?: Record<string, unknown>;
   timeout?: number;
   retries?: number;
+}
+
+export interface HttpClientOptions {
+  timeout?: number;
+  retryAttempts?: number;
+  headers?: Record<string, string>;
   /**
-   * Explicitly mark the request as safe to retry.
-   * GET/HEAD are always idempotent. POST/PUT/PATCH/DELETE only retry when
-   * this is true or an Idempotency-Key header is present.
+   * `sandbox` bypasses fetch and returns deterministic mocks.
+   * `live` / `production` hit the real network.
    */
-  isIdempotent?: boolean;
+  mode?: HttpClientMode;
+  sandboxSeed?: number;
+  sandboxLatency?: number;
+  sandboxErrorRate?: number;
+}
+
+function normalizeMode(mode?: HttpClientMode): 'live' | 'sandbox' {
+  if (mode === 'sandbox') return 'sandbox';
+  return 'live';
 }
 
 export class HttpClient {
@@ -29,16 +45,11 @@ export class HttpClient {
   private timeout: number;
   private retryAttempts: number;
   private interceptors: InterceptorManager;
+  private mode: 'live' | 'sandbox';
+  private mockRouter: MockRouter;
 
-  constructor(
-    baseUrl: string,
-    options?: {
-      timeout?: number;
-      retryAttempts?: number;
-      headers?: Record<string, string>;
-    }
-  ) {
-    this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
+  constructor(baseUrl: string, options?: HttpClientOptions) {
+    this.baseUrl = baseUrl.replace(/\/$/, '');
     this.timeout = options?.timeout || 30000;
     this.retryAttempts = options?.retryAttempts || 3;
     this.defaultHeaders = {
@@ -46,6 +57,12 @@ export class HttpClient {
       ...options?.headers,
     };
     this.interceptors = new InterceptorManager();
+    this.mode = normalizeMode(options?.mode);
+    this.mockRouter = new MockRouter({
+      seed: options?.sandboxSeed ?? 42,
+      latency: options?.sandboxLatency ?? 0,
+      errorRate: options?.sandboxErrorRate ?? 0,
+    });
   }
 
   /**
@@ -71,23 +88,58 @@ export class HttpClient {
   }
 
   /**
-   * Make HTTP request
+   * Switch between sandbox and live without recreating the client
+   */
+  setMode(mode: HttpClientMode): void {
+    this.mode = normalizeMode(mode);
+  }
+
+  getMode(): 'live' | 'sandbox' {
+    return this.mode;
+  }
+
+  isSandboxMode(): boolean {
+    return this.mode === 'sandbox';
+  }
+
+  configureSandbox(options: {
+    seed?: number;
+    latency?: number;
+    errorRate?: number;
+  }): void {
+    if (options.seed !== undefined) this.mockRouter.setSeed(options.seed);
+    if (options.latency !== undefined) this.mockRouter.setLatency(options.latency);
+    if (options.errorRate !== undefined) this.mockRouter.setErrorRate(options.errorRate);
+  }
+
+  getSandboxHistory(): readonly SandboxHistoryEntry[] {
+    return this.mockRouter.getHistory();
+  }
+
+  clearSandboxHistory(): void {
+    this.mockRouter.clearHistory();
+  }
+
+  /**
+   * Make HTTP request (or mock when in sandbox mode)
    */
   async request<T>(path: string, options: RequestOptions): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-
-    // Execute request interceptors
     const finalOptions = await this.interceptors.executeRequestInterceptors(options);
 
+    if (this.mode === 'sandbox') {
+      const mocked = await this.mockRouter.handle(
+        finalOptions.method,
+        path,
+        finalOptions.body
+      );
+      return (await this.interceptors.executeResponseInterceptors(mocked)) as T;
+    }
+
+    const url = `${this.baseUrl}${path}`;
     const headers = { ...this.defaultHeaders, ...finalOptions.headers };
 
     let lastError: Error | null = null;
     const attempts = finalOptions.retries ?? this.retryAttempts;
-    const canRetry = isRequestIdempotent({
-      method: finalOptions.method,
-      isIdempotent: finalOptions.isIdempotent,
-      headers,
-    });
 
     for (let attempt = 0; attempt < attempts; attempt++) {
       try {
@@ -104,26 +156,15 @@ export class HttpClient {
         }
 
         const data = (await response.json()) as T;
-
-        // Execute response interceptors
         return await this.interceptors.executeResponseInterceptors(data);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-
-        // Execute error interceptors
         await this.interceptors.executeErrorInterceptors(lastError);
 
-        // Don't retry on client errors (4xx)
         if (error instanceof ApiError && error.statusCode >= 400 && error.statusCode < 500) {
           throw error;
         }
 
-        // Never retry non-idempotent calls (avoids duplicate tips/charges)
-        if (!canRetry) {
-          throw lastError;
-        }
-
-        // Wait before retrying (exponential backoff)
         if (attempt < attempts - 1) {
           await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));
         }
