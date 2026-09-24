@@ -21,6 +21,10 @@
     "./sandbox": {
       "import": "./dist/sandbox/sandbox-client.js",
       "types": "./dist/sandbox/sandbox-client.d.ts"
+    },
+    "./webhook": {
+      "import": "./dist/webhook.js",
+      "types": "./dist/webhook.d.ts"
     }
   },
   "scripts": {
