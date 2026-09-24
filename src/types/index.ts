@@ -23,6 +23,19 @@ export type {
   TransactionStats,
 } from './models';
 
+import type { Transaction as TransactionModel } from './models';
+
+/** A tip is a transaction. */
+export type Tip = TransactionModel;
+
+export type {
+  Paginator,
+  PageFetcher,
+  PageItem,
+  PaginationResult,
+  QueryOptions,
+} from '../lib/query-builder';
+
 export type { TipRequest, CreateTipRequest } from './requests';
 export type { ApiResponse, PaginationMeta, PaginatedResponse } from './api';
 export {
