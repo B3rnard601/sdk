@@ -7,6 +7,7 @@
 
 import { ApiError } from '../types';
 import { InterceptorManager } from './interceptors';
+import { isRequestIdempotent } from './retry-manager';
 
 export interface RequestOptions {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -14,6 +15,12 @@ export interface RequestOptions {
   body?: Record<string, unknown>;
   timeout?: number;
   retries?: number;
+  /**
+   * Explicitly mark the request as safe to retry.
+   * GET/HEAD are always idempotent. POST/PUT/PATCH/DELETE only retry when
+   * this is true or an Idempotency-Key header is present.
+   */
+  isIdempotent?: boolean;
 }
 
 export class HttpClient {
@@ -76,6 +83,11 @@ export class HttpClient {
 
     let lastError: Error | null = null;
     const attempts = finalOptions.retries ?? this.retryAttempts;
+    const canRetry = isRequestIdempotent({
+      method: finalOptions.method,
+      isIdempotent: finalOptions.isIdempotent,
+      headers,
+    });
 
     for (let attempt = 0; attempt < attempts; attempt++) {
       try {
@@ -109,6 +121,11 @@ export class HttpClient {
           error.statusCode < 500
         ) {
           throw error;
+        }
+
+        // Never retry non-idempotent calls (avoids duplicate tips/charges)
+        if (!canRetry) {
+          throw lastError;
         }
 
         // Wait before retrying (exponential backoff)

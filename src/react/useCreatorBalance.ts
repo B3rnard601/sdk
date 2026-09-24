@@ -2,9 +2,14 @@
  * useCreatorBalance Hook
  *
  * Hook for fetching creator earnings and balance information.
+ *
+ * Dependency chain:
+ * - `fetchBalance` is stable (client + context setters only).
+ * - Latest `creatorId` / `walletId` live in refs so `refetch` never loses
+ *   the wallet filter or hits a stale creator after rapid switches.
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDorisio } from './DorisioProvider';
 import { ApiCreatorEarningsSchema } from '../types/schemas';
 
@@ -67,12 +72,23 @@ export function useCreatorBalance(
 
   const [creatorId, setCreatorId] = useState(initialCreatorId);
 
+  const creatorIdRef = useRef(creatorId);
+  creatorIdRef.current = creatorId;
+  const walletIdRef = useRef<string | undefined>(undefined);
+
   const fetchBalance = useCallback(
     async (id: string, walletId?: string): Promise<CreatorBalance> => {
       try {
         setState((s) => ({ ...s, loading: true, error: undefined }));
         setIsLoading(true);
         setCreatorId(id);
+        creatorIdRef.current = id;
+
+        // Persist walletId when provided so refetch keeps the same filter.
+        const resolvedWalletId = walletId !== undefined ? walletId : walletIdRef.current;
+        if (walletId !== undefined) {
+          walletIdRef.current = walletId;
+        }
 
         // Fetch earnings data
         const earningsResponse = await client.request<{
@@ -94,12 +110,12 @@ export function useCreatorBalance(
         };
 
         // Optionally fetch wallet balance
-        if (walletId) {
+        if (resolvedWalletId) {
           try {
-            const balanceResponse = await client.request<{
-              lumens?: string;
-              usdc?: string;
-            }>('GET', `/api/v1/wallet/${walletId}/balance`);
+            const balanceResponse = await client.request<any>(
+              'GET',
+              `/api/v1/wallet/${resolvedWalletId}/balance`
+            );
 
             if (balanceResponse.success && balanceResponse.data) {
               const d = balanceResponse.data;
@@ -136,23 +152,27 @@ export function useCreatorBalance(
   );
 
   const refetch = useCallback(async () => {
-    if (creatorId) {
-      await fetchBalance(creatorId);
+    const id = creatorIdRef.current;
+    if (id) {
+      await fetchBalance(id, walletIdRef.current);
     }
-  }, [creatorId, fetchBalance]);
+  }, [fetchBalance]);
 
   const reset = useCallback(() => {
     setState({
       loading: false,
     });
     setCreatorId(undefined);
+    creatorIdRef.current = undefined;
+    walletIdRef.current = undefined;
   }, []);
 
   // Auto-fetch on mount
   useEffect(() => {
     if (autoFetch && initialCreatorId) {
-      fetchBalance(initialCreatorId);
+      void fetchBalance(initialCreatorId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only autoFetch
   }, []);
 
   return {
