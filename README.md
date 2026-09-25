@@ -161,7 +161,8 @@ await client.getCurrentUser();
 
 ### API Reference
 
-- **[Full TypeDoc API Docs](./docs/index.html)** - Auto-generated from JSDoc
+- **[Published API Docs](https://dorisio.github.io/sdk/)** - Auto-generated from JSDoc and deployed to GitHub Pages on every push to `main`
+- **[Local TypeDoc build](./docs/index.html)** - Regenerate with `npm run docs`
 - **[Examples](./examples/)** - Runnable code samples
   - [Vanilla JS](./examples/vanilla/) - Auth, wallet, payments
   - [React Components](./examples/react/) - CreateTip, WalletStatus
@@ -349,7 +350,7 @@ npm run type-check
 # Lint
 npm run lint
 
-# Generate docs
+# Generate docs (output: docs/, deployed to GitHub Pages by .github/workflows/docs.yml)
 npm run docs
 
 # Build
@@ -476,6 +477,7 @@ MIT - See [LICENSE](./LICENSE) for details
 
 ## Support
 
-- 📖 [API Documentation](./docs/index.html)
+- 📖 [Published API Documentation](https://dorisio.github.io/sdk/)
+- 📖 [Local API Documentation](./docs/index.html)
 - 💬 [GitHub Issues](https://github.com/Dorisio/sdk/issues)
 - 📧 Support: support@dorisio.com
