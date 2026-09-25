@@ -2,11 +2,14 @@
  * TimeoutManager Tests
  *
  * Covers: timeout normalisation (min/max clamping, defaults),
- * AbortSignal creation, executeWithTimeout cleanup guarantee.
+ * AbortSignal creation, executeWithTimeout cleanup guarantee, and the
+ * timeout itself actually firing (signal delivery, TimeoutError, no abort
+ * after a fast operation).
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TimeoutManager } from './timeout-manager';
+import { TimeoutError } from '../types/errors';
 
 beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
@@ -169,5 +172,80 @@ describe('TimeoutManager.executeWithTimeout', () => {
       ([, ms]) => typeof ms === 'number' && (ms as number) >= 1000
     );
     expect(timeoutCall?.[1]).toBe(8000);
+  });
+
+  it('hands the operation an AbortSignal that is not yet aborted', async () => {
+    const mgr = new TimeoutManager({ default: 5000 });
+    let observed: AbortSignal | undefined;
+    const fn = vi.fn((signal: AbortSignal) => {
+      observed = signal;
+      return Promise.resolve('ok');
+    });
+
+    await mgr.executeWithTimeout(fn, 5000);
+
+    expect(observed).toBeInstanceOf(AbortSignal);
+    expect(observed?.aborted).toBe(false);
+  });
+
+  it('rejects with a TimeoutError when the operation outlives the timeout', async () => {
+    const mgr = new TimeoutManager({ default: 5000, min: 1, max: 60000 });
+    // Deliberately ignores the signal: the deadline must bound the wait anyway.
+    const promise = mgr.executeWithTimeout(() => new Promise<string>(() => undefined), 5000);
+
+    const rejection = expect(promise).rejects.toBeInstanceOf(TimeoutError);
+    await vi.advanceTimersByTimeAsync(5000);
+    await rejection;
+  });
+
+  it('aborts the signal it handed the operation when the timeout fires', async () => {
+    const mgr = new TimeoutManager({ default: 5000, min: 1, max: 60000 });
+    let observed: AbortSignal | undefined;
+    const promise = mgr.executeWithTimeout((signal) => {
+      observed = signal;
+      return new Promise<string>(() => undefined);
+    }, 5000);
+
+    const rejection = expect(promise).rejects.toBeInstanceOf(TimeoutError);
+    expect(observed?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(5000);
+    await rejection;
+
+    expect(observed?.aborted).toBe(true);
+  });
+
+  it('applies the normalised timeout to the deadline', async () => {
+    const mgr = new TimeoutManager({ default: 5000, min: 1000, max: 60000 });
+    const promise = mgr.executeWithTimeout(() => new Promise<string>(() => undefined), 1);
+
+    const rejection = expect(promise).rejects.toBeInstanceOf(TimeoutError);
+    await vi.advanceTimersByTimeAsync(1000);
+    await rejection;
+  });
+
+  it('does not abort when the operation completes before the timeout', async () => {
+    const mgr = new TimeoutManager({ default: 5000, min: 1, max: 60000 });
+    let observed: AbortSignal | undefined;
+
+    const result = await mgr.executeWithTimeout((signal) => {
+      observed = signal;
+      return Promise.resolve('done');
+    }, 5000);
+
+    expect(result).toBe('done');
+    expect(observed?.aborted).toBe(false);
+
+    // A leftover timer would abort here; there must not be one.
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(observed?.aborted).toBe(false);
+  });
+
+  it('propagates the operation error when the operation fails before the deadline', async () => {
+    const mgr = new TimeoutManager({ default: 5000, min: 1, max: 60000 });
+
+    await expect(
+      mgr.executeWithTimeout(() => Promise.reject(new Error('boom')), 5000)
+    ).rejects.toThrow('boom');
   });
 });
