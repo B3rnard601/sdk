@@ -29,7 +29,7 @@ interface UseUserActions {
  * Manages user state and operations
  */
 export function useUser(): UseUserState & UseUserActions {
-  const { client } = useDorisio();
+  const { client, setError: setParentError } = useDorisio();
   const [state, setState] = useState<UseUserState>({
     user: null,
     profile: null,
@@ -44,7 +44,10 @@ export function useUser(): UseUserState & UseUserActions {
 
   const setError = useCallback((error: ApiError | null) => {
     setState((prev) => ({ ...prev, error }));
-  }, []);
+    if (error && setParentError) {
+      setParentError({ message: error.message, code: error.code || 'USER_ERROR' });
+    }
+  }, [setParentError]);
 
   const fetchUser = useCallback(
     async (userId: string): Promise<User | null> => {
@@ -60,7 +63,6 @@ export function useUser(): UseUserState & UseUserActions {
           setState((prev) => ({
             ...prev,
             user: response.data as User,
-            loading: false,
           }));
           return response.data as User;
         }
@@ -69,11 +71,12 @@ export function useUser(): UseUserState & UseUserActions {
       } catch (err) {
         const error = err as ApiError;
         setError(error);
-        setLoading(false);
         return null;
+      } finally {
+        setLoading(false);
       }
     },
-    [client]
+    [client, setError, setLoading]
   );
 
   const fetchCurrentUser = useCallback(async (): Promise<User | null> => {
@@ -90,7 +93,6 @@ export function useUser(): UseUserState & UseUserActions {
           ...prev,
           user: response.data as User,
           isAuthenticated: true,
-          loading: false,
         }));
         return response.data as User;
       }
@@ -100,10 +102,11 @@ export function useUser(): UseUserState & UseUserActions {
       const error = err as ApiError;
       setError(error);
       setState((prev) => ({ ...prev, isAuthenticated: false }));
-      setLoading(false);
       return null;
+    } finally {
+      setLoading(false);
     }
-  }, [client]);
+  }, [client, setError, setLoading]);
 
   const updateUser = useCallback(
     async (userId: string, data: UpdateUserRequest): Promise<User | null> => {
@@ -119,7 +122,6 @@ export function useUser(): UseUserState & UseUserActions {
           setState((prev) => ({
             ...prev,
             user: response.data as User,
-            loading: false,
           }));
           return response.data as User;
         }
@@ -128,16 +130,17 @@ export function useUser(): UseUserState & UseUserActions {
       } catch (err) {
         const error = err as ApiError;
         setError(error);
-        setLoading(false);
         return null;
+      } finally {
+        setLoading(false);
       }
     },
-    [client]
+    [client, setError, setLoading]
   );
 
   const clearError = useCallback(() => {
     setError(null);
-  }, []);
+  }, [setError]);
 
   return {
     ...state,

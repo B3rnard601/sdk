@@ -34,7 +34,7 @@ interface UseCreatorActions {
  * Manages creator state and operations
  */
 export function useCreator(): UseCreatorState & UseCreatorActions {
-  const { client } = useDorisio();
+  const { client, setError: setParentError } = useDorisio();
   const [state, setState] = useState<UseCreatorState>({
     creator: null,
     profile: null,
@@ -48,7 +48,10 @@ export function useCreator(): UseCreatorState & UseCreatorActions {
 
   const setError = useCallback((error: ApiError | null) => {
     setState((prev) => ({ ...prev, error }));
-  }, []);
+    if (error && setParentError) {
+      setParentError({ message: error.message, code: error.code || 'CREATOR_ERROR' });
+    }
+  }, [setParentError]);
 
   const fetchCreator = useCallback(
     async (creatorId: string): Promise<Creator | null> => {
@@ -64,7 +67,6 @@ export function useCreator(): UseCreatorState & UseCreatorActions {
           setState((prev) => ({
             ...prev,
             creator: response.data as Creator,
-            loading: false,
           }));
           return response.data as Creator;
         }
@@ -73,11 +75,12 @@ export function useCreator(): UseCreatorState & UseCreatorActions {
       } catch (err) {
         const error = err as ApiError;
         setError(error);
-        setLoading(false);
         return null;
+      } finally {
+        setLoading(false);
       }
     },
-    [client]
+    [client, setError, setLoading]
   );
 
   const fetchProfile = useCallback(
@@ -94,7 +97,6 @@ export function useCreator(): UseCreatorState & UseCreatorActions {
           setState((prev) => ({
             ...prev,
             profile: response.data as CreatorProfile,
-            loading: false,
           }));
           return response.data as CreatorProfile;
         }
@@ -103,11 +105,12 @@ export function useCreator(): UseCreatorState & UseCreatorActions {
       } catch (err) {
         const error = err as ApiError;
         setError(error);
-        setLoading(false);
         return null;
+      } finally {
+        setLoading(false);
       }
     },
-    [client]
+    [client, setError, setLoading]
   );
 
   const createCreator = useCallback(
@@ -124,7 +127,6 @@ export function useCreator(): UseCreatorState & UseCreatorActions {
           setState((prev) => ({
             ...prev,
             creator: response.data as Creator,
-            loading: false,
           }));
           return response.data as Creator;
         }
@@ -133,11 +135,12 @@ export function useCreator(): UseCreatorState & UseCreatorActions {
       } catch (err) {
         const error = err as ApiError;
         setError(error);
-        setLoading(false);
         return null;
+      } finally {
+        setLoading(false);
       }
     },
-    [client]
+    [client, setError, setLoading]
   );
 
   const updateCreator = useCallback(
@@ -154,7 +157,6 @@ export function useCreator(): UseCreatorState & UseCreatorActions {
           setState((prev) => ({
             ...prev,
             creator: response.data as Creator,
-            loading: false,
           }));
           return response.data as Creator;
         }
@@ -163,16 +165,17 @@ export function useCreator(): UseCreatorState & UseCreatorActions {
       } catch (err) {
         const error = err as ApiError;
         setError(error);
-        setLoading(false);
         return null;
+      } finally {
+        setLoading(false);
       }
     },
-    [client]
+    [client, setError, setLoading]
   );
 
   const clearError = useCallback(() => {
     setError(null);
-  }, []);
+  }, [setError]);
 
   return {
     ...state,
