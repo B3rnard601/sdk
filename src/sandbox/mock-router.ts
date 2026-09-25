@@ -111,7 +111,7 @@ export class MockRouter {
   }
 
   private route(method: string, path: string, body: unknown, seed: number): unknown {
-    const clean = path.split('?')[0];
+    const clean = path.split('?')[0] ?? path;
 
     // Tips / transactions (api/v1 and bare paths)
     if (clean.includes('/transactions/tip') && method === 'POST') {
