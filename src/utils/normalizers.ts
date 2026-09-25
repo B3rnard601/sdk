@@ -21,24 +21,82 @@ import {
   ApiTransactionSchema,
   ApiUserSchema,
   ApiWalletSchema,
+  PaymentSchemas,
+  type CreateTipInput,
 } from '../types/schemas';
 
 /**
- * Normalize creator profile
- * Ensures all optional fields have defaults
+ * Normalize creator profile.
+ * Ensures all optional fields have defaults and validates raw input if necessary.
+ *
+ * @param creator - Creator entity or raw creator data
+ * @returns Normalized CreatorProfile
+ *
+ * @example
+ * ```ts
+ * import { normalizeCreatorProfile } from '@dorisio/sdk';
+ *
+ * const profile = normalizeCreatorProfile(creatorData);
+ * ```
  */
-export function normalizeCreatorProfile(creator: Creator): CreatorProfile {
+export function normalizeCreatorProfile(creator: Creator | unknown): CreatorProfile {
+  const isCreatorObj =
+    creator !== null &&
+    typeof creator === 'object' &&
+    'id' in creator &&
+    typeof (creator as Record<string, unknown>)['id'] === 'string';
+  const normalized = isCreatorObj ? normalizeCreator(creator) : normalizeCreator(creator);
+
   return {
-    ...creator,
-    displayName: creator.displayName ?? '',
-    bio: creator.bio ?? '',
-    avatar: creator.avatar ?? null,
+    ...normalized,
+    displayName: normalized.displayName ?? '',
+    bio: normalized.bio ?? '',
+    avatar: normalized.avatar ?? null,
     stats: {
       totalTips: 0,
       averageTip: 0,
       lastTipDate: null,
     },
   };
+}
+
+/**
+ * Normalize and validate create-tip input against PaymentSchemas.createTip.
+ *
+ * @param data - Raw create tip input data
+ * @returns Validated CreateTipInput
+ *
+ * @example
+ * ```ts
+ * import { normalizeCreateTip } from '@dorisio/sdk';
+ *
+ * const validatedInput = normalizeCreateTip({
+ *   amount: 25,
+ *   currency: 'USD',
+ *   creatorId: '550e8400-e29b-41d4-a716-446655440000',
+ *   message: 'Awesome work!',
+ * });
+ * ```
+ */
+export function normalizeCreateTip(data: unknown): CreateTipInput {
+  return PaymentSchemas.createTip.parse(data);
+}
+
+/**
+ * Alias for normalizeCreateTip for explicit input naming.
+ *
+ * @param data - Raw create tip input data
+ * @returns Validated CreateTipInput
+ *
+ * @example
+ * ```ts
+ * import { normalizeCreateTipInput } from '@dorisio/sdk';
+ *
+ * const validated = normalizeCreateTipInput(rawInput);
+ * ```
+ */
+export function normalizeCreateTipInput(data: unknown): CreateTipInput {
+  return PaymentSchemas.createTip.parse(data);
 }
 
 /**
