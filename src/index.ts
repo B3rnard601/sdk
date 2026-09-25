@@ -10,6 +10,16 @@ export const SDK_VERSION = '0.1.0';
 // Re-export client and utilities
 export { DorisioClient, type ClientConfig } from './client';
 
+// Re-export HTTP interceptors (public API for custom middleware)
+export { InterceptorManager } from './http/interceptors';
+export type {
+  RequestInterceptor,
+  ResponseInterceptor,
+  ErrorInterceptor,
+} from './http/interceptors';
+export type { RequestOptions } from './http/http-client';
+
+
 // Re-export types
 export type { ApiResponse, PaginationMeta, PaginatedResponse } from './types/api';
 export {
