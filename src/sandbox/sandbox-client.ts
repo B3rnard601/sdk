@@ -8,6 +8,7 @@
 import { DorisioClient, type ClientConfig } from '../client';
 import { ApiResponse } from '../types/api';
 import * as MockData from './mock-data';
+import type { SandboxHistoryEntry } from './mock-router';
 
 export interface SandboxConfig extends Omit<ClientConfig, 'mode'> {
   mode?: 'sandbox';
@@ -46,6 +47,12 @@ export interface SandboxConfig extends Omit<ClientConfig, 'mode'> {
  * ```
  */
 export class SandboxClient extends DorisioClient {
+  private latency: number;
+  private seed: number;
+  private errorRate: number;
+  private requestCounter = 0;
+  private history: SandboxHistoryEntry[] = [];
+
   constructor(config: SandboxConfig) {
     const { latency, seed, errorRate, ...rest } = config;
 
@@ -57,10 +64,6 @@ export class SandboxClient extends DorisioClient {
       sandboxLatency: latency,
       sandboxErrorRate: errorRate,
     });
-    // Strip sandbox-specific config before passing to parent
-    const { latency, seed, errorRate, ...parentConfig } = config;
-
-    super(parentConfig);
 
     this.latency = latency ?? 100;
     this.seed = seed ?? Math.random() * 10000;
@@ -103,20 +106,46 @@ export class SandboxClient extends DorisioClient {
       data = { ...MockData.generateMockTransaction(seed), status: 'confirmed' };
     } else if (path.includes('/transactions/')) {
       data = MockData.generateMockTransaction(seed);
-    } else if (path.includes('/creators') && method === 'GET') {
-      data = MockData.generateMockCreators({ seed });
     } else if (path.includes('/creators/')) {
       data = MockData.generateMockCreator(seed);
+    } else if (path.includes('/creators') && method === 'GET') {
+      data = MockData.generateMockCreators({ seed });
     } else if (path.includes('/wallet')) {
       data = MockData.generateMockWallet(seed);
     } else if (path.includes('/auth/login')) {
       data = MockData.generateMockSession(seed);
     } else if (path.includes('/auth/register')) {
       data = MockData.generateMockSession(seed);
+    } else if (path.includes('/auth/refresh')) {
+      data = {
+        userId: `sandbox-user-${seed}`,
+        email: 'sandbox@example.com',
+        token: `sandbox.jwt.${MockData.seededId(seed, 'tok')}`,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        expiresIn: 86400,
+      };
     } else if (path.includes('/auth/validate')) {
       data = MockData.generateMockSession(seed);
     } else if (path.includes('/auth/challenge')) {
       data = MockData.generateMockChallenge();
+    } else if (path.includes('/users/me/summary')) {
+      const summary = MockData.generateMockAccountSummary(seed);
+      data = {
+        userId: summary.user.id,
+        email: summary.user.email,
+        role: summary.user.role,
+        balance: {
+          total: summary.balance.totalEarnings,
+          available: summary.balance.confirmedBalance,
+          pending: summary.balance.pendingBalance,
+          wallets: summary.wallets.map((wallet) => ({
+            walletId: wallet.id,
+            available: wallet.balance,
+            pending: 0,
+            currency: wallet.currency,
+          })),
+        },
+      };
     } else if (path.includes('/users/me')) {
       data = MockData.generateMockUser(seed);
     } else if (path.includes('/users')) {
@@ -125,11 +154,27 @@ export class SandboxClient extends DorisioClient {
       data = { id: 'mock-response' };
     }
 
-    return {
+    const response = {
       success: true,
       data: data as T,
       timestamp: new Date().toISOString(),
     };
+    this.history.push({
+      method,
+      path,
+      response,
+      timestamp: response.timestamp,
+      durationMs: 0,
+    });
+    return response;
+  }
+
+  override getSandboxHistory(): readonly SandboxHistoryEntry[] {
+    return [...this.history];
+  }
+
+  override clearSandboxHistory(): void {
+    this.history = [];
   }
 
   /**

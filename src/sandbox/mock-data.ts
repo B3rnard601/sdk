@@ -122,7 +122,7 @@ export function generateMockExport(seed = 1) {
  */
 export function generateMockCreator(seed = 1) {
   const names = ['Alice Creator', 'Bob Developer', 'Carol Artist', 'Dave Musician', 'Eve Designer'];
-  const name = names[Math.floor(seededRandom(seed) * names.length)];
+  const name = names[Math.floor(seededRandom(seed) * names.length)] ?? 'Creator';
 
   const createdAt = new Date(
     Date.UTC(2023, 0, 1) + Math.floor(seededRandom(seed + 4) * 365) * 86400000
@@ -191,8 +191,8 @@ export function generateMockWallet(seed = 1) {
 export function generateMockUser(seed = 1) {
   const firstNames = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
   const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones'];
-  const firstName = firstNames[Math.floor(seededRandom(seed) * firstNames.length)];
-  const lastName = lastNames[Math.floor(seededRandom(seed + 1) * lastNames.length)];
+  const firstName = firstNames[Math.floor(seededRandom(seed) * firstNames.length)] ?? 'Alex';
+  const lastName = lastNames[Math.floor(seededRandom(seed + 1) * lastNames.length)] ?? 'User';
 
   const createdAt = new Date(
     Date.UTC(2023, 0, 1) + Math.floor(seededRandom(seed + 3) * 365) * 86400000
