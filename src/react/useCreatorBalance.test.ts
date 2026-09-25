@@ -151,10 +151,10 @@ describe('useCreatorBalance Hook', () => {
   describe('reset', () => {
     it('should reset balance state', () => {
       const state = {
-        balance: undefined,
+        balance: undefined as { totalEarnings: number; availableBalance: number; pendingBalance: number } | undefined,
         loading: false,
-        error: undefined,
-        lastUpdated: undefined,
+        error: undefined as string | undefined,
+        lastUpdated: undefined as number | undefined,
         reset: function () {
           this.balance = undefined;
           this.loading = false;

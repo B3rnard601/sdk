@@ -44,6 +44,9 @@ export type {
   TransactionWithDetails,
   TransactionHistory,
   TransactionStats,
+  CreatorListResponse,
+  WalletListResponse,
+  CreatorEarningsResponse,
   TipRequest,
   CreateTipRequest,
 } from './types';
@@ -57,8 +60,16 @@ export {
   parseWebhookPayload,
   WebhookEventType,
   type WebhookPayload,
+  type WebhookVerificationOptions,
   type WebhookEventHandler,
 } from './utils/webhook-verifier';
+export {
+  createWebhookMiddleware,
+  createNextWebhookHandler,
+  createNextApiWebhookHandler,
+  type WebhookMiddlewareOptions,
+} from './http/webhook-middleware';
+export { WebhookPayloadSchema } from './utils/validation-schemas';
 
 // Re-export validation schemas for consumer use
 export {

@@ -19,6 +19,19 @@ export interface CreateTipRequest {
    * If the same key is reused, the API returns the previously created tip
    */
   idempotencyKey?: string;
+  /**
+   * IANA timezone string for the sender (e.g. "America/New_York").
+   * Used for accurate date/time display in receipts.
+   */
+  timezone?: string;
+  /**
+   * Arbitrary key-value metadata to attach to the transaction.
+   */
+  metadata?: Record<string, string>;
+  /**
+   * Tags for categorising the transaction (e.g. ["birthday", "milestone"]).
+   */
+  tags?: string[];
 }
 
 export interface BuildTransactionRequest {
@@ -106,6 +119,9 @@ export async function createTip(this: DorisioClient, data: CreateTipRequest): Pr
       creatorId: data.creatorId,
       amount: data.amount,
       message: data.message || undefined,
+      timezone: data.timezone,
+      metadata: data.metadata,
+      tags: data.tags,
     },
     { headers }
   );

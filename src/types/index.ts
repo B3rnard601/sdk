@@ -21,6 +21,9 @@ export type {
   TransactionWithDetails,
   TransactionHistory,
   TransactionStats,
+  CreatorListResponse,
+  WalletListResponse,
+  CreatorEarningsResponse,
 } from './models';
 
 export type { TipRequest, CreateTipRequest } from './requests';

@@ -5,20 +5,12 @@
  */
 
 import { TransactionHistory, TransactionStats } from '../types/models';
-import { filterTransactionsByDateRange } from '../utils/transaction-normalizers';
+import {
+  ApiCreatorEarningsSchema,
+  ApiTransactionHistorySchema,
+} from '../types/schemas';
+import { filterTransactionsByDateRange, normalizeTransactionStats } from '../utils/transaction-normalizers';
 import { DorisioClient } from '../client';
-
-/**
- * Normalize transaction history response
- */
-function normalizeTransactionHistory(data: any): TransactionHistory {
-  return {
-    transactions: data.transactions || [],
-    total: data.total || 0,
-    page: data.page || 1,
-    pageSize: data.pageSize || 20,
-  };
-}
 
 /**
  * Get full transaction history with filters
@@ -39,7 +31,6 @@ export async function getFullTransactionHistory(
   if (options?.pageSize) params.append('pageSize', String(options.pageSize));
   if (options?.status) params.append('status', options.status);
 
-  // Date filters are applied client-side for flexibility
   const query = params.toString() ? `?${params.toString()}` : '';
   const response = await this.request('GET', `/transactions${query}`);
 
@@ -47,17 +38,39 @@ export async function getFullTransactionHistory(
     throw new Error('Failed to fetch transaction history');
   }
 
-  const history = normalizeTransactionHistory(response.data);
+  const parsed = ApiTransactionHistorySchema.parse(response.data);
+  const history: TransactionHistory = {
+    transactions: parsed.transactions.map((tx) => {
+      const rawStatus = tx.stellarStatus ?? tx.status ?? 'pending';
+      const status = (rawStatus === 'completed' ? 'confirmed' : rawStatus) as
+        | 'pending'
+        | 'confirmed'
+        | 'failed';
+      return {
+        id: tx.id,
+        fromUserId: tx.fromUserId,
+        creatorId: tx.creatorId,
+        amount: tx.amount,
+        message: tx.message ?? null,
+        status,
+        stellarTxHash: tx.stellarTxHash ?? null,
+        createdAt: tx.createdAt,
+        updatedAt: tx.updatedAt,
+      };
+    }),
+    total: parsed.total,
+    page: parsed.page,
+    pageSize: parsed.pageSize,
+  };
 
-  // Apply date range filter if provided
+  // Apply date range filter client-side if provided
   if (options?.startDate && options?.endDate) {
     const filtered = filterTransactionsByDateRange(
       history.transactions,
       options.startDate,
       options.endDate
     );
-    history.transactions = filtered;
-    history.total = filtered.length;
+    return { ...history, transactions: filtered, total: filtered.length };
   }
 
   return history;
@@ -70,19 +83,14 @@ export async function getTransactionStats(
   this: DorisioClient,
   userId?: string
 ): Promise<TransactionStats> {
-  const params = userId ? `?userId=${userId}` : '';
+  const params = userId ? `?userId=${encodeURIComponent(userId)}` : '';
   const response = await this.request('GET', `/transactions/stats${params}`);
 
   if (!response.success || !response.data) {
     throw new Error('Failed to fetch transaction statistics');
   }
 
-  return {
-    totalTransactions: (response.data as any).totalTransactions || 0,
-    totalAmount: (response.data as any).totalAmount || 0,
-    averageAmount: (response.data as any).averageAmount || 0,
-    lastTransactionDate: (response.data as any).lastTransactionDate || null,
-  };
+  return normalizeTransactionStats(response.data);
 }
 
 /**
@@ -103,11 +111,12 @@ export async function getCreatorEarnings(
     throw new Error(`Failed to fetch earnings for creator: ${creatorId}`);
   }
 
+  const parsed = ApiCreatorEarningsSchema.parse(response.data);
   return {
-    totalEarnings: (response.data as any).totalEarnings || 0,
-    pendingBalance: (response.data as any).pendingBalance || 0,
-    confirmedBalance: (response.data as any).confirmedBalance || 0,
-    transactionCount: (response.data as any).transactionCount || 0,
+    totalEarnings: parsed.totalEarnings,
+    pendingBalance: parsed.pendingBalance,
+    confirmedBalance: parsed.confirmedBalance,
+    transactionCount: parsed.transactionCount,
   };
 }
 
@@ -122,7 +131,7 @@ export async function exportTransactionHistory(
     endDate?: Date;
   }
 ): Promise<string> {
-  const format = options?.format || 'json';
+  const format = options?.format ?? 'json';
   const params = new URLSearchParams();
   params.append('format', format);
 
@@ -140,5 +149,5 @@ export async function exportTransactionHistory(
     throw new Error('Failed to export transaction history');
   }
 
-  return response.data as string;
+  return String(response.data);
 }

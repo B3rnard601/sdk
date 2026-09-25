@@ -31,7 +31,7 @@ export class ApiErrorFactory {
         return new ValidationError(
           response?.error || response?.message || 'Bad request',
           response?.details
-        ) as any;
+        ) as unknown as ApiError;
       case 401:
         return new AuthenticationError(response?.error || response?.message);
       case 403:
@@ -39,7 +39,7 @@ export class ApiErrorFactory {
       case 404:
         return new NotFoundError(response?.error || 'Resource');
       case 408:
-        return new TimeoutError(response?.error || 'Request timeout') as any;
+        return new TimeoutError(response?.error || 'Request timeout') as unknown as ApiError;
       case 429:
         return new ApiError(response?.error || 'Too many requests', 429, 'RATE_LIMITED');
       case 500:
