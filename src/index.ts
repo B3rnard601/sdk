@@ -192,5 +192,10 @@ export {
 
 // Re-export client method types
 export type { BalanceInfo, AccountBalance } from './client/balance';
+export {
+  getCreators,
+  getAllTransactionHistory,
+  getAllWalletBalances,
+} from './client/batch-operations';
 export type { VerificationStatus } from './client/verification';
 export type { SessionInfo } from './client/auth';

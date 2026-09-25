@@ -7,11 +7,13 @@
 import { Creator, CreatorProfile } from '../types/models';
 import { normalizeCreator, normalizeListCreatorsResponse } from '../utils/normalizers';
 import { DorisioClient } from '../client';
+import { RequestValidator } from '../utils/validators';
 
 /**
  * Get creator by ID
  */
 export async function getCreator(this: DorisioClient, creatorId: string): Promise<Creator> {
+  RequestValidator.nonEmptyString(creatorId, 'creatorId');
   const response = await this.request('GET', `/creators/${creatorId}`);
 
   if (!response.success || !response.data) {
@@ -55,6 +57,8 @@ export async function getCreatorProfile(
   this: DorisioClient,
   username: string
 ): Promise<CreatorProfile> {
+  RequestValidator.nonEmptyString(username, 'username');
+  RequestValidator.stringLength(username, 1, 100, 'username');
   const response = await this.request('GET', `/creators/profile/${username}`);
 
   if (!response.success || !response.data) {
