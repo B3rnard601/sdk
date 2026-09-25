@@ -38,7 +38,18 @@ export interface HttpClientOptions {
   sandboxSeed?: number;
   sandboxLatency?: number;
   sandboxErrorRate?: number;
+  /** Emit sanitized request/response diagnostics through the configured logger. */
+  debug?: boolean;
+  logger?: (message: string, data?: unknown) => void;
+  /** Reuse an in-flight or recently completed identical request. */
+  deduplicateRequests?: boolean;
+  deduplicationWindow?: number;
 }
+
+type CachedRequest = {
+  promise: Promise<unknown>;
+  expiresAt: number;
+};
 
 function normalizeMode(mode?: HttpClientMode): 'live' | 'sandbox' {
   if (mode === 'sandbox') return 'sandbox';
@@ -62,6 +73,36 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
   return Object.keys(headers).some((key) => key.toLowerCase() === target);
 }
 
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}:${stableSerialize((value as Record<string, unknown>)[key])}`
+      )
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+function sanitize(value: unknown, key = ''): unknown {
+  if (/authorization|cookie|token|secret|password|private.?key|api.?key/i.test(key)) {
+    return '[REDACTED]';
+  }
+  if (Array.isArray(value)) return value.map((item) => sanitize(item));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([entryKey, entryValue]) => [
+        entryKey,
+        sanitize(entryValue, entryKey),
+      ])
+    );
+  }
+  return value;
+}
+
 export class HttpClient {
   private baseUrl: string;
   private defaultHeaders: Record<string, string>;
@@ -70,6 +111,11 @@ export class HttpClient {
   private interceptors: InterceptorManager;
   private mode: 'live' | 'sandbox';
   private mockRouter: MockRouter;
+  private debug: boolean;
+  private logger: (message: string, data?: unknown) => void;
+  private deduplicateRequests: boolean;
+  private deduplicationWindow: number;
+  private deduplicationCache = new Map<string, CachedRequest>();
   /** Registered by the client so a 401 can be recovered from transparently. */
   private tokenRefresher?: () => Promise<void>;
   /** In-flight refresh, shared so concurrent 401s refresh exactly once. */
@@ -90,6 +136,13 @@ export class HttpClient {
       latency: options?.sandboxLatency ?? 0,
       errorRate: options?.sandboxErrorRate ?? 0,
     });
+    this.debug = options?.debug ?? false;
+    this.logger = options?.logger ?? ((message, data) => console.debug(message, data));
+    this.deduplicateRequests = options?.deduplicateRequests ?? false;
+    this.deduplicationWindow = options?.deduplicationWindow ?? 1000;
+    if (this.deduplicationWindow < 0) {
+      throw new Error('deduplicationWindow must be greater than or equal to zero');
+    }
   }
 
   /**
@@ -139,11 +192,7 @@ export class HttpClient {
     return this.mode === 'sandbox';
   }
 
-  configureSandbox(options: {
-    seed?: number;
-    latency?: number;
-    errorRate?: number;
-  }): void {
+  configureSandbox(options: { seed?: number; latency?: number; errorRate?: number }): void {
     if (options.seed !== undefined) this.mockRouter.setSeed(options.seed);
     if (options.latency !== undefined) this.mockRouter.setLatency(options.latency);
     if (options.errorRate !== undefined) this.mockRouter.setErrorRate(options.errorRate);
@@ -170,12 +219,41 @@ export class HttpClient {
   async request<T>(path: string, options: RequestOptions): Promise<T> {
     const finalOptions = await this.interceptors.executeRequestInterceptors(options);
 
+    const key = `${finalOptions.method}:${path}:${stableSerialize(finalOptions.body ?? null)}`;
+    if (this.deduplicateRequests) {
+      const cached = this.deduplicationCache.get(key);
+      if (cached && cached.expiresAt > Date.now()) {
+        return cached.promise as Promise<T>;
+      }
+      if (cached) this.deduplicationCache.delete(key);
+    }
+
+    const requestPromise = this.executeRequest<T>(path, finalOptions);
+    if (this.deduplicateRequests) {
+      const cachedRequest: CachedRequest = {
+        promise: requestPromise,
+        expiresAt: Date.now() + this.deduplicationWindow,
+      };
+      this.deduplicationCache.set(key, cachedRequest);
+      requestPromise.catch(() => {
+        if (this.deduplicationCache.get(key) === cachedRequest) {
+          this.deduplicationCache.delete(key);
+        }
+      });
+      if (this.deduplicationWindow > 0) {
+        setTimeout(() => {
+          if (this.deduplicationCache.get(key) === cachedRequest) {
+            this.deduplicationCache.delete(key);
+          }
+        }, this.deduplicationWindow);
+      }
+    }
+    return requestPromise;
+  }
+
+  private async executeRequest<T>(path: string, finalOptions: RequestOptions): Promise<T> {
     if (this.mode === 'sandbox') {
-      const mocked = await this.mockRouter.handle(
-        finalOptions.method,
-        path,
-        finalOptions.body
-      );
+      const mocked = await this.mockRouter.handle(finalOptions.method, path, finalOptions.body);
       return (await this.interceptors.executeResponseInterceptors(mocked)) as T;
     }
 
@@ -205,11 +283,7 @@ export class HttpClient {
   /**
    * Whether a failed request is worth a token refresh + replay.
    */
-  private canRecoverFrom(
-    error: unknown,
-    path: string,
-    options: RequestOptions
-  ): boolean {
+  private canRecoverFrom(error: unknown, path: string, options: RequestOptions): boolean {
     if (!this.tokenRefresher) {
       return false;
     }
@@ -256,11 +330,26 @@ export class HttpClient {
 
     for (let attempt = 0; attempt < attempts; attempt++) {
       try {
+        const startedAt = Date.now();
+        this.log('[DORISIO] request', {
+          method: options.method,
+          path,
+          body: sanitize(options.body),
+          headers: sanitize(headers),
+          attempt: attempt + 1,
+        });
         const response = await fetch(url, {
           method: options.method,
           headers,
           body: options.body ? JSON.stringify(options.body) : undefined,
           signal: AbortSignal.timeout(options.timeout ?? this.timeout),
+        });
+        this.log('[DORISIO] response', {
+          method: options.method,
+          path,
+          status: response.status,
+          elapsedMs: Date.now() - startedAt,
+          attempt: attempt + 1,
         });
 
         if (!response.ok) {
@@ -299,5 +388,9 @@ export class HttpClient {
     }
 
     throw lastError || new Error('Request failed after retries');
+  }
+
+  private log(message: string, data: unknown): void {
+    if (this.debug) this.logger(message, data);
   }
 }

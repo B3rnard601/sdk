@@ -154,16 +154,20 @@ describe('HttpClient idempotent retries', () => {
 
     const client = new HttpClient('https://api.example.com', { retryAttempts: 3 });
 
-    await expect(
-      client.request('/api/v1/wallets/1', { method: 'DELETE' })
-    ).rejects.toBeInstanceOf(ApiError);
+    await expect(client.request('/api/v1/wallets/1', { method: 'DELETE' })).rejects.toBeInstanceOf(
+      ApiError
+    );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
 function unauthorized() {
-  return { ok: false, status: 401, json: async () => ({ error: 'Unauthorized', code: 'UNAUTHORIZED' }) };
+  return {
+    ok: false,
+    status: 401,
+    json: async () => ({ error: 'Unauthorized', code: 'UNAUTHORIZED' }),
+  };
 }
 
 describe('HttpClient 401 session refresh', () => {
@@ -307,5 +311,83 @@ describe('HttpClient 401 session refresh', () => {
     ).resolves.toEqual({ id: 'tip-1' });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('HttpClient diagnostics and request deduplication', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('logs sanitized request and response metadata when debug is enabled', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const logger = vi.fn();
+    const client = new HttpClient('https://api.example.com', {
+      debug: true,
+      logger,
+      retryAttempts: 1,
+      headers: { Authorization: 'Bearer should-not-leak' },
+    });
+
+    await client.request('/api/v1/debug', {
+      method: 'POST',
+      body: { token: 'secret-token', value: 'safe' },
+    });
+
+    expect(logger).toHaveBeenCalledTimes(2);
+    expect(logger.mock.calls[0]?.[0]).toBe('[DORISIO] request');
+    expect(logger.mock.calls[0]?.[1]).toMatchObject({
+      body: { token: '[REDACTED]', value: 'safe' },
+      headers: { Authorization: '[REDACTED]' },
+    });
+    expect(logger.mock.calls[1]?.[0]).toBe('[DORISIO] response');
+    expect(logger.mock.calls[1]?.[1]).toMatchObject({ status: 200, elapsedMs: expect.any(Number) });
+  });
+
+  it('shares identical in-flight requests and reuses the result within the window', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 1 }) });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const client = new HttpClient('https://api.example.com', {
+      deduplicateRequests: true,
+      deduplicationWindow: 1000,
+      retryAttempts: 1,
+    });
+
+    const first = client.request('/api/v1/items', { method: 'GET' });
+    const second = client.request('/api/v1/items', { method: 'GET' });
+    await expect(Promise.all([first, second])).resolves.toEqual([{ id: 1 }, { id: 1 }]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not share requests with different bodies and clears rejected entries', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ id: 1 }) })
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ id: 2 }) });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const client = new HttpClient('https://api.example.com', {
+      deduplicateRequests: true,
+      deduplicationWindow: 1000,
+      retryAttempts: 1,
+    });
+
+    await client.request('/api/v1/items', { method: 'POST', body: { id: 1 } });
+    await expect(
+      client.request('/api/v1/items', { method: 'POST', body: { id: 2 } })
+    ).rejects.toThrow('network down');
+    await expect(
+      client.request('/api/v1/items', { method: 'POST', body: { id: 2 } })
+    ).resolves.toEqual({
+      id: 2,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
