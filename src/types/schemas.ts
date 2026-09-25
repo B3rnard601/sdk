@@ -335,10 +335,26 @@ export const Schemas = {
 /**
  * Type inference helpers for commonly used schemas
  */
+// Inferred types for Auth schemas
+export type LoginInput = z.infer<typeof AuthSchemas.login>;
+export type RegisterInput = z.infer<typeof AuthSchemas.register>;
+export type WalletChallengeInput = z.infer<typeof AuthSchemas.walletChallenge>;
+export type WalletVerificationInput = z.infer<typeof AuthSchemas.walletVerification>;
+
+// Inferred types for Payment schemas
 export type CreateTipInput = z.infer<typeof PaymentSchemas.createTip>;
 export type TransactionDetails = z.infer<typeof PaymentSchemas.transaction>;
+export type PaymentHistoryFilterInput = z.infer<typeof PaymentSchemas.historyFilter>;
+
+// Inferred types for Creator schemas
 export type CreatorProfile = z.infer<typeof CreatorSchemas.profile>;
+export type CreatorProfileInput = CreatorProfile;
+export type CreatorVerificationInput = z.infer<typeof CreatorSchemas.verification>;
+export type CreatorPayoutInput = z.infer<typeof CreatorSchemas.payout>;
+
+// Inferred types for Wallet schemas
 export type WalletInfo = z.infer<typeof WalletSchemas.wallet>;
+export type LinkWalletInput = z.infer<typeof WalletSchemas.linkWallet>;
 
 // Inferred types for API response schemas
 export type ApiUser = z.infer<typeof ApiUserSchema>;
@@ -349,5 +365,11 @@ export type ApiListCreators = z.infer<typeof ApiListCreatorsSchema>;
 export type ApiTransactionHistory = z.infer<typeof ApiTransactionHistorySchema>;
 export type ApiTransactionStats = z.infer<typeof ApiTransactionStatsSchema>;
 export type ApiSession = z.infer<typeof ApiSessionSchema>;
+export type ApiSessionExpiry = z.infer<typeof ApiSessionExpirySchema>;
 export type ApiBalanceInfo = z.infer<typeof ApiBalanceInfoSchema>;
 export type ApiAccountBalance = z.infer<typeof ApiAccountBalanceSchema>;
+export type ApiCreatorEarnings = z.infer<typeof ApiCreatorEarningsSchema>;
+export type ApiCreatorPendingPayout = z.infer<typeof ApiCreatorPendingPayoutSchema>;
+export type ApiAccountSummary = z.infer<typeof ApiAccountSummarySchema>;
+export type ApiVerificationStatus = z.infer<typeof ApiVerificationStatusSchema>;
+export type ApiWalletChallenge = z.infer<typeof ApiWalletChallengeSchema>;

@@ -189,19 +189,41 @@ try {
 }
 ```
 
-#### Input Validation with Zod
+#### Input Validation with Zod & Inferred Types
 
-Use exported schemas to validate before sending:
+Dorisio SDK exports both Zod schemas for runtime validation and their corresponding inferred TypeScript types for compile-time safety:
+
+- **When to use TypeScript types**: Use inferred types (`CreateTipInput`, `LoginInput`, `WalletInfo`, etc.) across your application code, component props, and API boundaries for compile-time type checking without runtime overhead.
+- **When to use Zod schemas / Normalizers**: Use schemas (`PaymentSchemas`, `AuthSchemas`, `CreatorSchemas`, `WalletSchemas`) or SDK normalizers (`normalizeCreateTip`, `normalizeCreatorProfile`) at I/O boundaries—such as processing user forms, untrusted API responses, webhooks, or query parameters—to validate data shapes and prevent invalid requests.
 
 ```typescript
-import { Schemas } from 'dorisio-sdk';
+import {
+  PaymentSchemas,
+  type CreateTipInput,
+  normalizeCreateTip,
+} from 'dorisio-sdk';
+import { v4 as uuidv4 } from 'uuid';
 
-const validatedTip = Schemas.Payment.createTip.parse({
+// 1. Static typing with inferred types
+const tipData: CreateTipInput = {
   amount: 50,
   currency: 'USD',
-  creatorId: 'xxx',
+  creatorId: '550e8400-e29b-41d4-a716-446655440000',
+  message: 'Great work!',
   idempotencyKey: uuidv4(),
-});
+};
+
+// 2. Runtime validation via Zod schemas
+const validatedTip = PaymentSchemas.createTip.parse(tipData);
+
+// Or safe parsing with error handling
+const result = PaymentSchemas.createTip.safeParse(untrustedInput);
+if (!result.success) {
+  console.error('Validation errors:', result.error.flatten());
+}
+
+// 3. Normalizer helper for runtime validation & transformation
+const normalized = normalizeCreateTip(untrustedInput);
 ```
 
 #### Idempotent Payments
