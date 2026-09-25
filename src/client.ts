@@ -3,9 +3,10 @@
  *
  * Main client for interacting with Dorisio backend API.
  * Handles authentication, request/response handling, and error management.
+ * Supports sandbox/mock mode for offline testing without network calls.
  */
 
-import { HttpClient, RequestOptions } from './http/http-client';
+import { HttpClient, RequestOptions, type HttpClientMode } from './http/http-client';
 import { getConfig } from './config';
 import { ApiResponse } from './types/api';
 import { Creator, CreatorProfile, Transaction, TransactionHistory, TransactionStats, User, Wallet } from './types/models';
@@ -19,6 +20,7 @@ import {
   SubmitTransactionRequest,
   SubmitTransactionResponse,
 } from './client/transactions';
+import type { SandboxHistoryEntry } from './sandbox/mock-router';
 import * as creatorMethods from './client/creators';
 import * as walletMethods from './client/wallets';
 import * as transactionMethods from './client/transactions';
@@ -28,27 +30,47 @@ import * as verificationMethods from './client/verification';
 import * as authMethods from './client/auth';
 import { CreateWalletRequest, UpdateWalletRequest } from './types/models';
 
+export type ClientMode = 'sandbox' | 'live' | 'production';
+
 export interface ClientConfig {
   baseUrl: string;
   token?: string;
   timeout?: number;
-  mode?: 'production' | 'sandbox';
+  /**
+   * `sandbox` — all requests return deterministic mocks (no network).
+   * `live` / `production` — real HTTP calls.
+   */
+  mode?: ClientMode;
+  /** Seed for deterministic sandbox responses (default 42) */
+  sandboxSeed?: number;
+  /** Simulated sandbox latency in ms (default 0) */
+  sandboxLatency?: number;
+  /** Sandbox random error rate 0–1 (default 0) */
+  sandboxErrorRate?: number;
+}
+
+function normalizeClientMode(mode?: ClientMode): 'live' | 'sandbox' {
+  if (mode === 'sandbox') return 'sandbox';
+  return 'live';
 }
 
 export class DorisioClient {
-  private config: ClientConfig & { timeout: number };
+  private config: ClientConfig & { timeout: number; mode: 'live' | 'sandbox' };
   private httpClient: HttpClient;
   private token?: string;
-  private mode: 'production' | 'sandbox';
+  private mode: 'live' | 'sandbox';
 
   constructor(config: ClientConfig) {
-    const mode = config.mode || 'production';
+    const mode = normalizeClientMode(config.mode);
 
     this.config = {
       timeout: config.timeout || 30000,
-      baseUrl: config.baseUrl.replace(/\/$/, ''), // Remove trailing slash
+      baseUrl: config.baseUrl.replace(/\/$/, ''),
       token: config.token,
       mode,
+      sandboxSeed: config.sandboxSeed,
+      sandboxLatency: config.sandboxLatency,
+      sandboxErrorRate: config.sandboxErrorRate,
     };
 
     this.token = config.token;
@@ -57,13 +79,16 @@ export class DorisioClient {
     this.httpClient = new HttpClient(this.config.baseUrl, {
       timeout: this.config.timeout,
       retryAttempts: getConfig().retryAttempts,
+      mode,
+      sandboxSeed: config.sandboxSeed,
+      sandboxLatency: config.sandboxLatency,
+      sandboxErrorRate: config.sandboxErrorRate,
     });
 
     if (this.token) {
       this.httpClient.setHeader('Authorization', `Bearer ${this.token}`);
     }
 
-    // Bind methods
     this.bindMethods();
   }
 
@@ -71,13 +96,11 @@ export class DorisioClient {
    * Bind all client methods
    */
   private bindMethods(): void {
-    // Creator methods
     this.getCreator = creatorMethods.getCreator.bind(this);
     this.listCreators = creatorMethods.listCreators.bind(this);
     this.getCreatorProfile = creatorMethods.getCreatorProfile.bind(this);
     this.verifyCreator = verificationMethods.verifyCreator.bind(this);
 
-    // Wallet methods
     this.connectWallet = walletMethods.connectWallet.bind(this);
     this.disconnectWallet = walletMethods.disconnectWallet.bind(this);
     this.getWallets = walletMethods.getWallets.bind(this);
@@ -86,7 +109,6 @@ export class DorisioClient {
     this.verifyWallet = verificationMethods.verifyWallet.bind(this);
     this.getWalletBalance = balanceMethods.getWalletBalance.bind(this);
 
-    // Transaction methods
     this.createTip = transactionMethods.createTip.bind(this);
     this.getTipStatus = transactionMethods.getTipStatus.bind(this);
     this.getTransactionHistory = transactionMethods.getTransactionHistory.bind(this);
@@ -96,19 +118,16 @@ export class DorisioClient {
     this.checkTransactionConfirmation = transactionMethods.checkTransactionConfirmation.bind(this);
     this.updateTipStatus = transactionMethods.updateTipStatus.bind(this);
 
-    // History methods
     this.getFullTransactionHistory = historyMethods.getFullTransactionHistory.bind(this);
     this.getTransactionStats = historyMethods.getTransactionStats.bind(this);
     this.getCreatorEarnings = historyMethods.getCreatorEarnings.bind(this);
     this.exportTransactionHistory = historyMethods.exportTransactionHistory.bind(this);
 
-    // Balance methods
     this.getBalance = balanceMethods.getBalance.bind(this);
     this.getCreatorPendingPayout = balanceMethods.getCreatorPendingPayout.bind(this);
     this.canPayout = balanceMethods.canPayout.bind(this);
     this.getAccountSummary = balanceMethods.getAccountSummary.bind(this);
 
-    // Verification methods
     this.requestCreatorVerification = verificationMethods.requestCreatorVerification.bind(this);
     this.getCreatorVerificationStatus = verificationMethods.getCreatorVerificationStatus.bind(this);
     this.getWalletVerificationStatus = verificationMethods.getWalletVerificationStatus.bind(this);
@@ -116,7 +135,6 @@ export class DorisioClient {
       verificationMethods.requestWalletVerificationChallenge.bind(this);
     this.isTransactionVerified = verificationMethods.isTransactionVerified.bind(this);
 
-    // Auth methods
     this.refreshSession = authMethods.refreshSession.bind(this);
     this.validateSession = authMethods.validateSession.bind(this);
     this.getCurrentUser = authMethods.getCurrentUser.bind(this);
@@ -145,7 +163,7 @@ export class DorisioClient {
   }
 
   /**
-   * Make request to backend API
+   * Make request to backend API (mocked automatically in sandbox mode)
    */
   async request<T = unknown>(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
@@ -153,16 +171,12 @@ export class DorisioClient {
     body?: unknown,
     options?: Partial<RequestOptions>
   ): Promise<ApiResponse<T>> {
-    try {
-      const data = await this.httpClient.request<ApiResponse<T>>(path, {
-        method,
-        body: body as Record<string, unknown>,
-        ...options,
-      });
-      return data;
-    } catch (error) {
-      throw error;
-    }
+    const data = await this.httpClient.request<ApiResponse<T>>(path, {
+      method,
+      body: body as Record<string, unknown>,
+      ...options,
+    });
+    return data;
   }
 
   /**
@@ -175,15 +189,24 @@ export class DorisioClient {
   /**
    * Get current config
    */
-  getConfig(): Readonly<ClientConfig & { timeout: number }> {
+  getConfig(): Readonly<ClientConfig & { timeout: number; mode: 'live' | 'sandbox' }> {
     return { ...this.config };
   }
 
   /**
-   * Get current mode (production or sandbox)
+   * Get current mode (live or sandbox)
    */
-  getMode(): 'production' | 'sandbox' {
+  getMode(): 'live' | 'sandbox' {
     return this.mode;
+  }
+
+  /**
+   * Toggle sandbox/live without recreating the client
+   */
+  setMode(mode: ClientMode): void {
+    this.mode = normalizeClientMode(mode);
+    this.config.mode = this.mode;
+    this.httpClient.setMode(mode as HttpClientMode);
   }
 
   /**
@@ -191,6 +214,27 @@ export class DorisioClient {
    */
   isSandboxMode(): boolean {
     return this.mode === 'sandbox';
+  }
+
+  /**
+   * Sandbox request history for debugging / test assertions
+   */
+  getSandboxHistory(): readonly SandboxHistoryEntry[] {
+    return this.httpClient.getSandboxHistory();
+  }
+
+  /**
+   * Clear recorded sandbox history
+   */
+  clearSandboxHistory(): void {
+    this.httpClient.clearSandboxHistory();
+  }
+
+  /**
+   * Configure sandbox latency / seed / error rate at runtime
+   */
+  configureSandbox(options: { seed?: number; latency?: number; errorRate?: number }): void {
+    this.httpClient.configureSandbox(options);
   }
 
   // ---------------------------------------------------------------------------

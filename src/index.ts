@@ -86,6 +86,8 @@ export {
 // Re-export sandbox utilities
 export { SandboxClient, createSandboxClient, type SandboxConfig } from './sandbox/sandbox-client';
 export * as MockData from './sandbox/mock-data';
+export { MockRouter, type SandboxHistoryEntry } from './sandbox/mock-router';
+export type { ClientMode } from './client';
 
 // Re-export query utilities
 export {

@@ -1,16 +1,16 @@
 /**
  * Sandbox Mode Client
  *
- * Simulates all API responses without hitting real testnet.
- * Perfect for testing UI integrations and development workflows.
+ * Convenience wrapper that constructs DorisioClient in sandbox mode.
+ * Mock routing and request history are handled by HttpClient.
  */
 
 import { DorisioClient, type ClientConfig } from '../client';
 import { ApiResponse } from '../types/api';
 import * as MockData from './mock-data';
 
-export interface SandboxConfig extends ClientConfig {
-  mode: 'sandbox';
+export interface SandboxConfig extends Omit<ClientConfig, 'mode'> {
+  mode?: 'sandbox';
   /**
    * Simulate network delays (ms). Set to 0 for instant responses.
    */
@@ -26,31 +26,37 @@ export interface SandboxConfig extends ClientConfig {
 }
 
 /**
- * Create a sandbox client for testing without real network calls
+ * Sandbox client — all API methods return mocks, no network I/O.
  *
  * @example
  * ```ts
- * const client = new DorisioClient({
- *   mode: 'sandbox',
- *   latency: 200, // Simulate 200ms network delay
+ * const client = new SandboxClient({
+ *   baseUrl: 'https://api.dorisio.com',
+ *   latency: 50,
+ *   seed: 42,
  * });
  *
- * // Use exactly like real client - all responses are mocked
- * const tip = await client.payments.createTip({
- *   creatorId: 'xxx',
+ * const tip = await client.createTip({
+ *   creatorId: 'mock-creator-123',
  *   amount: 50,
+ *   message: 'Test tip',
  * });
  *
- * console.log(tip.id); // Real UUID, deterministic
+ * console.log(client.getSandboxHistory());
  * ```
  */
 export class SandboxClient extends DorisioClient {
-  private latency: number;
-  private seed: number;
-  private errorRate: number;
-  private requestCounter = 0;
-
   constructor(config: SandboxConfig) {
+    const { latency, seed, errorRate, ...rest } = config;
+
+    super({
+      ...rest,
+      baseUrl: rest.baseUrl || 'http://sandbox.dorisio.local',
+      mode: 'sandbox',
+      sandboxSeed: seed,
+      sandboxLatency: latency,
+      sandboxErrorRate: errorRate,
+    });
     // Strip sandbox-specific config before passing to parent
     const { latency, seed, errorRate, ...parentConfig } = config;
 
@@ -130,33 +136,31 @@ export class SandboxClient extends DorisioClient {
    * Set latency for simulating network delays
    */
   setLatency(latency: number): void {
-    this.latency = latency;
+    this.configureSandbox({ latency });
   }
 
   /**
    * Set error rate for simulating failures (0-1)
    */
   setErrorRate(errorRate: number): void {
-    this.errorRate = Math.max(0, Math.min(1, errorRate));
+    this.configureSandbox({ errorRate });
   }
 
   /**
    * Set seed for deterministic responses
    */
   setSeed(seed: number): void {
-    this.seed = seed;
-    this.requestCounter = 0;
+    this.configureSandbox({ seed });
   }
 
   /**
-   * Get current configuration
+   * Get current sandbox configuration
    */
   getSandboxConfig() {
     return {
-      latency: this.latency,
-      seed: this.seed,
-      errorRate: this.errorRate,
-      isSandbox: true,
+      mode: this.getMode(),
+      isSandbox: this.isSandboxMode(),
+      historyLength: this.getSandboxHistory().length,
     };
   }
 }
@@ -170,7 +174,7 @@ export class SandboxClient extends DorisioClient {
  *
  * const client = createSandboxClient({
  *   latency: 200,
- *   seed: 42, // Deterministic
+ *   seed: 42,
  * });
  * ```
  */
