@@ -160,6 +160,37 @@ describe('HttpClient idempotent retries', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('honors an external abort signal and skips retries', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: { signal?: AbortSignal }) => {
+      capturedSignal = init?.signal;
+      return new Promise((_resolve, reject) => {
+        // Like a real fetch, an already-aborted signal rejects immediately —
+        // listeners alone never fire retroactively.
+        if (init?.signal?.aborted) {
+          reject(new DOMException('Aborted', 'AbortError'));
+          return;
+        }
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const client = new HttpClient('https://api.example.com', { retryAttempts: 3 });
+    const controller = new AbortController();
+    const pending = client.request('/api/v1/transactions/history', {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(capturedSignal?.aborted).toBe(true);
+  });
 });
 
 function unauthorized() {
