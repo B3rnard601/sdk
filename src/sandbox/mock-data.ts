@@ -104,12 +104,10 @@ export function generateMockTransactionHistory(options: MockDataOptions = {}) {
 
 export function generateMockTransactionStats(seed = 1) {
   return {
-    totalTips: Math.floor(seededRandom(seed) * 500),
+    totalTransactions: Math.floor(seededRandom(seed) * 500),
     totalAmount: Math.floor(seededRandom(seed + 1) * 50000),
-    averageTip: Math.floor(seededRandom(seed + 2) * 100) + 1,
-    completedCount: Math.floor(seededRandom(seed + 3) * 400),
-    pendingCount: Math.floor(seededRandom(seed + 4) * 50),
-    failedCount: Math.floor(seededRandom(seed + 5) * 20),
+    averageAmount: Math.floor(seededRandom(seed + 2) * 100) + 1,
+    lastTransactionDate: new Date().toISOString(),
   };
 }
 
@@ -122,7 +120,7 @@ export function generateMockExport(seed = 1) {
  */
 export function generateMockCreator(seed = 1) {
   const names = ['Alice Creator', 'Bob Developer', 'Carol Artist', 'Dave Musician', 'Eve Designer'];
-  const name = names[Math.floor(seededRandom(seed) * names.length)];
+  const name = names[Math.floor(seededRandom(seed) * names.length)] ?? 'Alice Creator';
 
   const createdAt = new Date(
     Date.UTC(2023, 0, 1) + Math.floor(seededRandom(seed + 4) * 365) * 86400000
@@ -191,8 +189,8 @@ export function generateMockWallet(seed = 1) {
 export function generateMockUser(seed = 1) {
   const firstNames = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
   const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones'];
-  const firstName = firstNames[Math.floor(seededRandom(seed) * firstNames.length)];
-  const lastName = lastNames[Math.floor(seededRandom(seed + 1) * lastNames.length)];
+  const firstName = firstNames[Math.floor(seededRandom(seed) * firstNames.length)] ?? 'Alice';
+  const lastName = lastNames[Math.floor(seededRandom(seed + 1) * lastNames.length)] ?? 'Smith';
 
   const createdAt = new Date(
     Date.UTC(2023, 0, 1) + Math.floor(seededRandom(seed + 3) * 365) * 86400000
@@ -213,10 +211,13 @@ export function generateMockUser(seed = 1) {
  * Mock session info generator
  */
 export function generateMockSession(seed = 1) {
+  const user = generateMockUser(seed);
   return {
+    userId: user.id,
+    email: user.email,
     token: `sandbox.jwt.${seededId(seed, 'tok')}`,
-    user: generateMockUser(seed),
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    expiresIn: 86_400,
   };
 }
 
@@ -228,25 +229,55 @@ export function generateMockCreatorBalance(seed = 1) {
     totalEarnings: Math.floor(seededRandom(seed) * 50000),
     pendingBalance: Math.floor(seededRandom(seed + 1) * 5000),
     confirmedBalance: Math.floor(seededRandom(seed + 2) * 45000),
-    lumens: Math.floor(seededRandom(seed + 3) * 1000),
-    usdc: Math.floor(seededRandom(seed + 4) * 10000),
+    pending: Math.floor(seededRandom(seed + 1) * 5000),
+    nextPayoutDate: new Date(Date.now() + 7 * 86400000).toISOString(),
+    minimumThreshold: 10,
+    total: Math.floor(seededRandom(seed) * 50000),
+    available: Math.floor(seededRandom(seed + 2) * 45000),
+    wallets: [
+      {
+        walletId: seededId(seed, 'wallet'),
+        available: Math.floor(seededRandom(seed + 3) * 1000),
+        pending: Math.floor(seededRandom(seed + 4) * 100),
+        currency: 'USDC',
+      },
+    ],
   };
 }
 
 export function generateMockCreatorEarnings(seed = 1) {
+  const balance = generateMockCreatorBalance(seed);
   return {
-    ...generateMockCreatorBalance(seed),
-    period: 'all-time',
-    tipCount: Math.floor(seededRandom(seed + 5) * 200),
+    totalEarnings: balance.totalEarnings,
+    pendingBalance: balance.pendingBalance,
+    confirmedBalance: balance.confirmedBalance,
+    transactionCount: Math.floor(seededRandom(seed + 5) * 200),
   };
 }
 
 export function generateMockAccountSummary(seed = 1) {
+  const user = generateMockUser(seed);
+  const wallet = generateMockWallet(seed + 2);
   return {
-    user: generateMockUser(seed),
-    balance: generateMockCreatorBalance(seed + 1),
-    wallets: [generateMockWallet(seed + 2)],
-    recentTips: generateMockTransactionHistory({ seed: seed + 3, count: 5 }),
+    userId: user.id,
+    email: user.email,
+    role: user.role ?? 'fan',
+    balance: {
+      total: 1000,
+      available: 800,
+      pending: 200,
+      wallets: [
+        {
+          walletId: wallet.id,
+          available: 800,
+          pending: 200,
+          currency: wallet.currency ?? 'USDC',
+        },
+      ],
+    },
+    totalTipsSent: Math.floor(seededRandom(seed + 3) * 50),
+    totalEarnings: Math.floor(seededRandom(seed + 4) * 5000),
+    lastActivityDate: new Date().toISOString(),
   };
 }
 
@@ -255,13 +286,15 @@ export function generateMockAccountSummary(seed = 1) {
  */
 export function generateMockVerificationStatus(seed = 1) {
   const statuses = ['unverified', 'pending', 'verified'] as const;
+  const status = statuses[Math.floor(seededRandom(seed) * statuses.length)] ?? 'pending';
   return {
-    status: statuses[Math.floor(seededRandom(seed) * statuses.length)],
+    status,
+    verified: status === 'verified',
     verifiedAt:
-      seededRandom(seed + 1) > 0.3
-        ? new Date(Date.UTC(2024, 0, 1) + Math.floor(seededRandom(seed + 2) * 180) * 86400000)
-        : null,
-    expiresAt: new Date(Date.UTC(2025, 0, 1)),
+      status === 'verified'
+        ? new Date(Date.UTC(2024, 0, 1) + Math.floor(seededRandom(seed + 2) * 180) * 86400000).toISOString()
+        : undefined,
+    expiresAt: new Date(Date.UTC(2025, 0, 1)).toISOString(),
   };
 }
 
@@ -271,7 +304,7 @@ export function generateMockVerificationStatus(seed = 1) {
 export function generateMockChallenge(seed = 1) {
   return {
     challenge: seededId(seed, 'challenge'),
-    timeout: 5 * 60 * 1000,
+    expiresIn: 300,
   };
 }
 

@@ -50,8 +50,8 @@ describe('Sandbox mode', () => {
 
     const history = client.getSandboxHistory();
     expect(history.length).toBeGreaterThanOrEqual(2);
-    expect(history[0].method).toBe('POST');
-    expect(history[0].path).toContain('transactions/tip');
+    expect(history[0]?.method).toBe('POST');
+    expect(history[0]?.path).toContain('transactions/tip');
     expect(history.some((h) => h.path.includes('/users/me'))).toBe(true);
 
     client.clearSandboxHistory();
@@ -74,7 +74,7 @@ describe('Sandbox mode', () => {
     const tipB = await b.createTip({ creatorId: 'x', amount: 1 });
 
     expect(tipA.id).toBe(tipB.id);
-    expect(tipA.transactionHash).toBe(tipB.transactionHash);
+    expect(tipA.stellarTxHash).toBe(tipB.stellarTxHash);
   });
 
   it('toggles between sandbox and live without recreating the client', async () => {
