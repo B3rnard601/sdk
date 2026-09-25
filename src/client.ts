@@ -90,6 +90,12 @@ export class DorisioClient {
     }
 
     this.bindMethods();
+
+    // A 401 on any API call renews the session once and replays the request,
+    // instead of bouncing the user to a logged-out state on a stale token.
+    this.httpClient.setTokenRefresher(async () => {
+      await this.refreshSession();
+    });
   }
 
   /**
