@@ -166,6 +166,28 @@ await client.getCurrentUser();
   - [Vanilla JS](./examples/vanilla/) - Auth, wallet, payments
   - [React Components](./examples/react/) - CreateTip, WalletStatus
 
+  - [Interceptors](./examples/interceptors/) - Logging, metrics, auth refresh, retry policy
+
+### Interceptors
+
+Hook into the request/response lifecycle for cross-cutting concerns (logging, metrics, retry policy, header injection). See **[INTERCEPTORS.md](./INTERCEPTORS.md)** for the full guide.
+
+```typescript
+import { DorisioClient } from 'dorisio-sdk';
+
+const client = new DorisioClient({ baseUrl: 'https://api.dorisio.com', token: 'token' });
+const interceptors = client.getHttpClient().getInterceptors();
+
+interceptors.addRequestInterceptor((options) => {
+  options.headers = { ...options.headers, 'X-Request-Id': crypto.randomUUID() };
+  return options;
+});
+```
+
+`InterceptorManager`, `RequestInterceptor`, `ResponseInterceptor`, `ErrorInterceptor`, and
+`RequestOptions` are exported from the package root. Interceptors run sequentially in registration
+order and may be async; error interceptors observe failures but do not swallow them.
+
 ### Core Concepts
 
 #### Type-Safe Errors
@@ -367,6 +389,7 @@ See [examples/](./examples/) for complete working examples:
 - **[Wallet Linking](./examples/vanilla/wallet.ts)** - Challenge-response verification
 - **[Payments](./examples/vanilla/payment.ts)** - Tips with idempotency
 - **[React Components](./examples/react/)** - CreateTip form, WalletStatus display
+- **[Interceptors](./examples/interceptors/)** - Logging, metrics, auth refresh, retry policy wrappers
 
 ## API Overview
 
