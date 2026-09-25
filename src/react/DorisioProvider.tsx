@@ -5,8 +5,17 @@
  * Manages client configuration, authentication state, error boundaries, and global state.
  */
 
-import React, { createContext, useContext, useCallback, useState, ReactNode, useMemo } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useCallback,
+  useEffect,
+  useState,
+  ReactNode,
+  useMemo,
+} from 'react';
 import { DorisioClient, ClientConfig } from '../client';
+import { getErrorMessage, isRethrownByHook, safely } from './safe-async';
 
 /**
  * Authentication state
@@ -56,7 +65,15 @@ export interface DorisioProviderProps {
   client: DorisioClient;
   config: ClientConfig;
   initialAuth?: AuthState;
+  /** Called for every error reported by SDK hooks or caught by the provider's error boundary. */
   onError?: (error: ErrorState) => void;
+  /** Custom UI shown when a render error is caught. Receives the error and a `reset` function. */
+  fallback?: ReactNode | ((error: Error | undefined, reset: () => void) => ReactNode);
+  /**
+   * Log hook rejections that nothing caught (e.g. an un-awaited `createTip()` in an event
+   * handler) to the console. Only rejections raised by Dorisio hooks are logged. Default: true.
+   */
+  captureUnhandledRejections?: boolean;
   children: ReactNode;
 }
 
@@ -87,6 +104,8 @@ export function DorisioProvider({
   config,
   initialAuth,
   onError,
+  fallback,
+  captureUnhandledRejections = true,
   children,
 }: DorisioProviderProps): React.ReactElement {
   // Authentication state
@@ -133,9 +152,10 @@ export function DorisioProvider({
       };
       setErrorState(errorState);
 
-      // Notify parent app of error if handler provided
+      // Notify parent app of error if handler provided. A throwing handler must not
+      // break the hook that reported the error (or mask the original error).
       if (onError) {
-        onError(errorState);
+        safely('onError handler', () => onError(errorState));
       }
     },
     [onError]
@@ -144,6 +164,31 @@ export function DorisioProvider({
   const clearError = useCallback(() => {
     setErrorState(undefined);
   }, []);
+
+  // Log hook rejections nobody caught. Async errors never reach React error boundaries,
+  // so this is the only place they can be surfaced.
+  useEffect(() => {
+    if (!captureUnhandledRejections || typeof window === 'undefined') return undefined;
+
+    const handler = (event: PromiseRejectionEvent): void => {
+      if (!isRethrownByHook(event.reason)) return;
+      console.error(
+        '[dorisio] Unhandled promise rejection from a Dorisio hook action. ' +
+          'Await it in try/catch or add .catch(); the error is also available in hook state.',
+        event.reason
+      );
+    };
+
+    window.addEventListener('unhandledrejection', handler);
+    return () => window.removeEventListener('unhandledrejection', handler);
+  }, [captureUnhandledRejections]);
+
+  // Report errors caught by the boundary to the same channel as hook errors
+  const reportRenderError = useCallback(
+    (err: Error) =>
+      setError({ message: getErrorMessage(err, 'Render error'), code: 'RENDER_ERROR' }),
+    [setError]
+  );
 
   // Create context value
   const value: DorisioContextValue = useMemo(
@@ -164,7 +209,9 @@ export function DorisioProvider({
 
   return (
     <DorisioContext.Provider value={value}>
-      <ErrorBoundary>{children}</ErrorBoundary>
+      <ErrorBoundary onError={reportRenderError} fallback={fallback}>
+        {children}
+      </ErrorBoundary>
     </DorisioContext.Provider>
   );
 }
@@ -195,10 +242,14 @@ export function useDorisio(): DorisioContextValue {
 
 /**
  * Error Boundary component
- * Catches React errors and displays fallback UI
+ * Catches errors thrown while rendering (sync only — React error boundaries cannot see
+ * rejected promises) and displays fallback UI. Async failures are reported by the hooks
+ * themselves through `setError` / `onError`.
  */
 interface ErrorBoundaryProps {
   children: ReactNode;
+  onError?: (error: Error) => void;
+  fallback?: DorisioProviderProps['fallback'];
 }
 
 interface ErrorBoundaryState {
@@ -218,10 +269,20 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     console.error('Dorisio Error Boundary caught error:', error, errorInfo);
+    const { onError } = this.props;
+    if (onError) safely('error boundary onError', () => onError(error));
   }
+
+  private reset = (): void => {
+    this.setState({ hasError: false, error: undefined });
+  };
 
   render(): ReactNode {
     if (this.state.hasError) {
+      const { fallback } = this.props;
+      if (fallback !== undefined) {
+        return typeof fallback === 'function' ? fallback(this.state.error, this.reset) : fallback;
+      }
       return (
         <div
           style={{
@@ -236,7 +297,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
           <h2>Something went wrong</h2>
           <p>{this.state.error?.message}</p>
           <button
-            onClick={() => this.setState({ hasError: false })}
+            onClick={this.reset}
             style={{
               padding: '8px 16px',
               backgroundColor: '#c92a2a',
