@@ -8,7 +8,7 @@
 
 import { ApiError } from '../types';
 import { InterceptorManager } from './interceptors';
-import { isRequestIdempotent } from './retry-manager';
+import { generateRequestId, isRequestIdempotent, RetryConflictError } from './retry-manager';
 import { MockRouter, type SandboxHistoryEntry } from '../sandbox/mock-router';
 
 export type HttpClientMode = 'live' | 'sandbox' | 'production';
@@ -26,10 +26,17 @@ export interface RequestOptions {
   isIdempotent?: boolean;
   /**
    * Caller-provided abort signal (e.g. a hook superseding a stale request).
-   * Combined with the timeout signal — aborting this cancels the fetch and
+   * Combined with the timeout signal â€” aborting this cancels the fetch and
    * skips retries. Aborted requests reject instead of retrying.
    */
   signal?: AbortSignal;
+  /**
+   * Stable id for this logical request. All retry attempts reuse it (sent to
+   * the server as `X-Request-Id` when the caller did not already set one) and
+   * concurrent requests must use distinct ids. Generated automatically when
+   * omitted.
+   */
+  requestId?: string;
 }
 
 export interface HttpClientOptions {
@@ -68,6 +75,21 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
   return Object.keys(headers).some((key) => key.toLowerCase() === target);
 }
 
+/**
+ * Attach the logical request id to the outgoing headers so retries and server
+ * logs can be correlated. Callers who set their own `X-Request-Id` win.
+ */
+function withRequestIdHeader(
+  headers: Record<string, string> | undefined,
+  requestId: string
+): Record<string, string> {
+  const next: Record<string, string> = { ...headers };
+  if (!hasHeader(next, 'x-request-id')) {
+    next['X-Request-Id'] = requestId;
+  }
+  return next;
+}
+
 export class HttpClient {
   private baseUrl: string;
   private defaultHeaders: Record<string, string>;
@@ -80,6 +102,8 @@ export class HttpClient {
   private tokenRefresher?: () => Promise<void>;
   /** In-flight refresh, shared so concurrent 401s refresh exactly once. */
   private refreshPromise?: Promise<void>;
+  /** Logical request ids currently executing a retry sequence. */
+  private readonly inFlightRequests = new Set<string>();
 
   constructor(baseUrl: string, options?: HttpClientOptions) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -145,6 +169,16 @@ export class HttpClient {
     return this.mode === 'sandbox';
   }
 
+  /** Number of logical requests currently in flight. */
+  getInFlightRequestCount(): number {
+    return this.inFlightRequests.size;
+  }
+
+  /** Ids of the logical requests currently in flight. */
+  getInFlightRequestIds(): string[] {
+    return [...this.inFlightRequests];
+  }
+
   configureSandbox(options: {
     seed?: number;
     latency?: number;
@@ -174,37 +208,57 @@ export class HttpClient {
    * credentials (nothing to renew).
    */
   async request<T>(path: string, options: RequestOptions): Promise<T> {
-    const finalOptions = await this.interceptors.executeRequestInterceptors(options);
+    const requestId = options.requestId ?? generateRequestId('http');
 
-    if (this.mode === 'sandbox') {
-      const mocked = await this.mockRouter.handle(
-        finalOptions.method,
-        path,
-        finalOptions.body
-      );
-      return (await this.interceptors.executeResponseInterceptors(mocked)) as T;
+    // One logical request may only run one retry sequence at a time. Two
+    // concurrent callers reusing an id would otherwise double-submit the same
+    // work (and could exceed the intended retry budget), so reject the
+    // duplicate instead of racing it.
+    if (this.inFlightRequests.has(requestId)) {
+      throw new RetryConflictError(requestId);
     }
+    this.inFlightRequests.add(requestId);
 
     try {
-      return await this.sendWithRetries<T>(path, finalOptions);
-    } catch (error) {
-      if (!this.canRecoverFrom(error, path, finalOptions)) {
-        throw error;
+      const seeded: RequestOptions = {
+        ...options,
+        requestId,
+        headers: withRequestIdHeader(options.headers, requestId),
+      };
+      const finalOptions = await this.interceptors.executeRequestInterceptors(seeded);
+
+      if (this.mode === 'sandbox') {
+        const mocked = await this.mockRouter.handle(
+          finalOptions.method,
+          path,
+          finalOptions.body
+        );
+        return (await this.interceptors.executeResponseInterceptors(mocked)) as T;
       }
 
-      // Refresh exactly once, sharing the in-flight attempt with any other
-      // request that was rejected at the same time.
       try {
-        await this.refreshSessionOnce();
-      } catch {
-        // Refresh failed: the session is genuinely gone, surface the original
-        // 401 rather than a secondary refresh error.
-        throw error;
-      }
+        return await this.sendWithRetries<T>(path, finalOptions);
+      } catch (error) {
+        if (!this.canRecoverFrom(error, path, finalOptions)) {
+          throw error;
+        }
 
-      // Replay once. This call cannot refresh again, so a second 401 falls
-      // straight through to the caller.
-      return await this.sendWithRetries<T>(path, finalOptions);
+        // Refresh exactly once, sharing the in-flight attempt with any other
+        // request that was rejected at the same time.
+        try {
+          await this.refreshSessionOnce();
+        } catch {
+          // Refresh failed: the session is genuinely gone, surface the original
+          // 401 rather than a secondary refresh error.
+          throw error;
+        }
+
+        // Replay once. This call cannot refresh again, so a second 401 falls
+        // straight through to the caller.
+        return await this.sendWithRetries<T>(path, finalOptions);
+      }
+    } finally {
+      this.inFlightRequests.delete(requestId);
     }
   }
 
@@ -283,7 +337,7 @@ export class HttpClient {
         await this.interceptors.executeErrorInterceptors(lastError);
 
         // Don't retry requests the caller cancelled (superseded hook
-        // requests) — retrying an aborted fetch just burns attempts.
+        // requests) â€” retrying an aborted fetch just burns attempts.
         if (options.signal?.aborted) {
           throw lastError;
         }
