@@ -5,6 +5,7 @@
  */
 
 import { DorisioClient } from '../client';
+import { RequestValidator } from '../utils/validators';
 import {
   ApiAccountBalanceSchema,
   ApiAccountSummarySchema,
@@ -31,6 +32,7 @@ export interface AccountBalance {
  * Get user's total balance across all wallets
  */
 export async function getBalance(this: DorisioClient, userId: string): Promise<AccountBalance> {
+  RequestValidator.nonEmptyString(userId, 'userId');
   const response = await this.request('GET', `/users/${userId}/balance`);
 
   if (!response.success || !response.data) {
@@ -59,6 +61,7 @@ export async function getWalletBalance(
   this: DorisioClient,
   walletId: string
 ): Promise<BalanceInfo> {
+  RequestValidator.nonEmptyString(walletId, 'walletId');
   const response = await this.request('GET', `/wallets/${walletId}/balance`);
 
   if (!response.success || !response.data) {
@@ -90,6 +93,7 @@ export async function getCreatorPendingPayout(
   nextPayoutDate?: string;
   minimumThreshold: number;
 }> {
+  RequestValidator.nonEmptyString(creatorId, 'creatorId');
   const response = await this.request('GET', `/creators/${creatorId}/payout-pending`);
 
   if (!response.success || !response.data) {
@@ -108,6 +112,7 @@ export async function getCreatorPendingPayout(
  * Check if minimum payout threshold is reached
  */
 export async function canPayout(this: DorisioClient, creatorId: string): Promise<boolean> {
+  RequestValidator.nonEmptyString(creatorId, 'creatorId');
   const response = await this.request('GET', `/creators/${creatorId}/can-payout`);
 
   if (!response.success || response.data === undefined) {

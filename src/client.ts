@@ -9,7 +9,15 @@
 import { HttpClient, RequestOptions, type HttpClientMode } from './http/http-client';
 import { getConfig } from './config';
 import { ApiResponse } from './types/api';
-import { Creator, CreatorProfile, Transaction, TransactionHistory, TransactionStats, User, Wallet } from './types/models';
+import {
+  Creator,
+  CreatorProfile,
+  Transaction,
+  TransactionHistory,
+  TransactionStats,
+  User,
+  Wallet,
+} from './types/models';
 import { BalanceInfo, AccountBalance } from './client/balance';
 import { SessionInfo } from './client/auth';
 import { VerificationStatus } from './client/verification';
@@ -29,6 +37,7 @@ import * as balanceMethods from './client/balance';
 import * as verificationMethods from './client/verification';
 import * as authMethods from './client/auth';
 import { CreateWalletRequest, UpdateWalletRequest } from './types/models';
+import * as batchMethods from './client/batch-operations';
 
 export type ClientMode = 'sandbox' | 'live' | 'production';
 
@@ -47,6 +56,10 @@ export interface ClientConfig {
   sandboxLatency?: number;
   /** Sandbox random error rate 0–1 (default 0) */
   sandboxErrorRate?: number;
+  debug?: boolean;
+  logger?: (message: string, data?: unknown) => void;
+  deduplicateRequests?: boolean;
+  deduplicationWindow?: number;
 }
 
 function normalizeClientMode(mode?: ClientMode): 'live' | 'sandbox' {
@@ -71,6 +84,10 @@ export class DorisioClient {
       sandboxSeed: config.sandboxSeed,
       sandboxLatency: config.sandboxLatency,
       sandboxErrorRate: config.sandboxErrorRate,
+      debug: config.debug,
+      logger: config.logger,
+      deduplicateRequests: config.deduplicateRequests,
+      deduplicationWindow: config.deduplicationWindow,
     };
 
     this.token = config.token;
@@ -83,6 +100,10 @@ export class DorisioClient {
       sandboxSeed: config.sandboxSeed,
       sandboxLatency: config.sandboxLatency,
       sandboxErrorRate: config.sandboxErrorRate,
+      debug: config.debug,
+      logger: config.logger,
+      deduplicateRequests: config.deduplicateRequests,
+      deduplicationWindow: config.deduplicationWindow,
     });
 
     if (this.token) {
@@ -148,6 +169,9 @@ export class DorisioClient {
     this.isAuthenticated = authMethods.isAuthenticated.bind(this);
     this.extendSession = authMethods.extendSession.bind(this);
     this.getSessionExpiry = authMethods.getSessionExpiry.bind(this);
+    this.getCreators = batchMethods.getCreators.bind(this);
+    this.getAllTransactionHistory = batchMethods.getAllTransactionHistory.bind(this);
+    this.getAllWalletBalances = batchMethods.getAllWalletBalances.bind(this);
   }
 
   /**
@@ -366,4 +390,11 @@ export class DorisioClient {
     expiresIn: number;
     isExpired: boolean;
   }>;
+
+  declare getCreators: (creatorIds: string[], concurrency?: number) => Promise<Creator[]>;
+  declare getAllTransactionHistory: (pageSize?: number) => Promise<TransactionHistory>;
+  declare getAllWalletBalances: (
+    walletIds: string[],
+    concurrency?: number
+  ) => Promise<BalanceInfo[]>;
 }
