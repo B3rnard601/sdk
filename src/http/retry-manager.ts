@@ -11,6 +11,13 @@ export interface RetryConfig {
   initialDelayMs: number;
   maxDelayMs: number;
   backoffMultiplier: number;
+  /** When true (default), adds ±10% random jitter to prevent thundering herd. */
+  jitter?: boolean;
+  /**
+   * HTTP status codes that trigger a retry.
+   * Defaults to [408, 429, 500, 502, 503, 504].
+   */
+  retryableStatusCodes?: number[];
 }
 
 export type IdempotencyOptions = {
@@ -53,8 +60,10 @@ export function isRequestIdempotent(options: IdempotencyOptions): boolean {
   return false;
 }
 
+const DEFAULT_RETRYABLE_STATUS_CODES: readonly number[] = [408, 429, 500, 502, 503, 504];
+
 export class RetryManager {
-  private config: RetryConfig;
+  private config: Required<RetryConfig>;
 
   constructor(config: Partial<RetryConfig> = {}) {
     this.config = {
@@ -62,6 +71,8 @@ export class RetryManager {
       initialDelayMs: config.initialDelayMs ?? 1000,
       maxDelayMs: config.maxDelayMs ?? 30000,
       backoffMultiplier: config.backoffMultiplier ?? 2,
+      jitter: config.jitter ?? true,
+      retryableStatusCodes: config.retryableStatusCodes ?? [...DEFAULT_RETRYABLE_STATUS_CODES],
     };
   }
 
@@ -97,29 +108,43 @@ export class RetryManager {
   }
 
   /**
-   * Calculate exponential backoff delay
+   * Calculate exponential backoff delay with optional jitter.
    */
-  private calculateDelay(attempt: number): number {
+  calculateDelay(attempt: number): number {
     const exponentialDelay =
       this.config.initialDelayMs * Math.pow(this.config.backoffMultiplier, attempt);
     const delay = Math.min(exponentialDelay, this.config.maxDelayMs);
-    // Add jitter (±10%)
+    if (!this.config.jitter) {
+      return delay;
+    }
+    // ±10% jitter to prevent thundering herd
     const jitter = delay * 0.1 * (Math.random() * 2 - 1);
     return Math.max(0, delay + jitter);
   }
 
   /**
-   * Determine if error is retryable.
-   * When method/idempotency options are provided, non-idempotent calls never retry.
+   * Determine if an error should trigger a retry based on this instance's
+   * configured retryableStatusCodes. When method/idempotency options are
+   * provided, non-idempotent calls never retry.
    */
-  static isRetryableError(error: unknown, options?: IdempotencyOptions): boolean {
+  isRetryableError(error: unknown, options?: IdempotencyOptions): boolean {
+    return RetryManager.isRetryableError(error, options, this.config.retryableStatusCodes);
+  }
+
+  /**
+   * Static convenience — uses the default retryable codes unless overridden.
+   */
+  static isRetryableError(
+    error: unknown,
+    options?: IdempotencyOptions,
+    retryableStatusCodes: readonly number[] = DEFAULT_RETRYABLE_STATUS_CODES,
+  ): boolean {
     if (options && !isRequestIdempotent(options)) {
       return false;
     }
 
     if (error instanceof ApiError && error.statusCode) {
-      // Retry on server errors (5xx) and rate limits (429), timeouts (408)
-      return error.statusCode >= 500 || error.statusCode === 429 || error.statusCode === 408;
+      return retryableStatusCodes.includes(error.statusCode);
     }
 
     if (error instanceof Error) {
