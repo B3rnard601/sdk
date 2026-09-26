@@ -81,7 +81,7 @@ export class ApiErrorHandler {
     }
 
     if (handled instanceof ApiError) {
-      const prefix = (handled as any).code ? `${(handled as any).code}: ` : '';
+      const prefix = handled.code ? `${handled.code}: ` : '';
       return `${prefix}${handled.message}`;
     }
 

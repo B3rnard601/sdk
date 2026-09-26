@@ -70,4 +70,29 @@ export class InterceptorManager {
     }
     return result;
   }
+
+  /**
+   * #48 - Remove all registered interceptors and release closure references.
+   *
+   * Call this when the owning HttpClient is no longer needed (e.g. on logout
+   * or in test teardown) to prevent long-lived interceptor closures from
+   * retaining references to auth tokens, loggers, or other large objects.
+   */
+  cleanup(): void {
+    this.requestInterceptors = [];
+    this.responseInterceptors = [];
+    this.errorInterceptors = [];
+  }
+
+  /**
+   * Return the number of registered interceptors of each type.
+   * Useful for tests and diagnostics.
+   */
+  getCount(): { request: number; response: number; error: number } {
+    return {
+      request: this.requestInterceptors.length,
+      response: this.responseInterceptors.length,
+      error: this.errorInterceptors.length,
+    };
+  }
 }

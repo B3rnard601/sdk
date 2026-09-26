@@ -113,14 +113,81 @@ export function App() {
 }
 ```
 
+
+## Sandbox / Mock Mode
+
+Test the SDK offline without hitting testnet or the Dorisio API. When `mode: "sandbox"` is set, `HttpClient` bypasses `fetch` and returns deterministic mock responses for every client method.
+
+```typescript
+import { DorisioClient } from 'dorisio-sdk';
+
+const client = new DorisioClient({
+  baseUrl: 'https://api.dorisio.com',
+  token: 'test-token',
+  mode: 'sandbox', // no network calls
+  sandboxSeed: 42, // optional — same seed => same mocks
+});
+
+const tip = await client.createTip({
+  creatorId: 'mock-creator-123',
+  amount: 50,
+  message: 'Test tip',
+});
+
+// Inspect what the sandbox handled
+console.log(client.getSandboxHistory());
+
+// Toggle to live without recreating the client
+client.setMode('live');
+```
+
+Or use the dedicated helper:
+
+```typescript
+import { createSandboxClient } from 'dorisio-sdk';
+
+const client = createSandboxClient({ seed: 42, latency: 0 });
+await client.getCurrentUser();
+```
+
+### Acceptance checklist
+
+- `DorisioClient({ mode: 'sandbox' })` works with zero network calls
+- Client methods return deterministic mocks (seeded)
+- `client.getSandboxHistory()` / `clearSandboxHistory()` for test assertions
+- `client.setMode('sandbox' | 'live')` toggles without recreating the client
+
 ## Documentation
 
 ### API Reference
 
-- **[Full TypeDoc API Docs](./docs/index.html)** - Auto-generated from JSDoc
+- **[Published API Docs](https://dorisio.github.io/sdk/)** - Auto-generated from JSDoc and deployed to GitHub Pages on every push to `main`
+- **[Local TypeDoc build](./docs/index.html)** - Regenerate with `npm run docs`
 - **[Examples](./examples/)** - Runnable code samples
   - [Vanilla JS](./examples/vanilla/) - Auth, wallet, payments
   - [React Components](./examples/react/) - CreateTip, WalletStatus
+
+  - [Interceptors](./examples/interceptors/) - Logging, metrics, auth refresh, retry policy
+
+### Interceptors
+
+Hook into the request/response lifecycle for cross-cutting concerns (logging, metrics, retry policy, header injection). See **[INTERCEPTORS.md](./INTERCEPTORS.md)** for the full guide.
+
+```typescript
+import { DorisioClient } from 'dorisio-sdk';
+
+const client = new DorisioClient({ baseUrl: 'https://api.dorisio.com', token: 'token' });
+const interceptors = client.getHttpClient().getInterceptors();
+
+interceptors.addRequestInterceptor((options) => {
+  options.headers = { ...options.headers, 'X-Request-Id': crypto.randomUUID() };
+  return options;
+});
+```
+
+`InterceptorManager`, `RequestInterceptor`, `ResponseInterceptor`, `ErrorInterceptor`, and
+`RequestOptions` are exported from the package root. Interceptors run sequentially in registration
+order and may be async; error interceptors observe failures but do not swallow them.
 
 ### Core Concepts
 
@@ -145,19 +212,41 @@ try {
 }
 ```
 
-#### Input Validation with Zod
+#### Input Validation with Zod & Inferred Types
 
-Use exported schemas to validate before sending:
+Dorisio SDK exports both Zod schemas for runtime validation and their corresponding inferred TypeScript types for compile-time safety:
+
+- **When to use TypeScript types**: Use inferred types (`CreateTipInput`, `LoginInput`, `WalletInfo`, etc.) across your application code, component props, and API boundaries for compile-time type checking without runtime overhead.
+- **When to use Zod schemas / Normalizers**: Use schemas (`PaymentSchemas`, `AuthSchemas`, `CreatorSchemas`, `WalletSchemas`) or SDK normalizers (`normalizeCreateTip`, `normalizeCreatorProfile`) at I/O boundaries—such as processing user forms, untrusted API responses, webhooks, or query parameters—to validate data shapes and prevent invalid requests.
 
 ```typescript
-import { Schemas } from 'dorisio-sdk';
+import {
+  PaymentSchemas,
+  type CreateTipInput,
+  normalizeCreateTip,
+} from 'dorisio-sdk';
+import { v4 as uuidv4 } from 'uuid';
 
-const validatedTip = Schemas.Payment.createTip.parse({
+// 1. Static typing with inferred types
+const tipData: CreateTipInput = {
   amount: 50,
   currency: 'USD',
-  creatorId: 'xxx',
+  creatorId: '550e8400-e29b-41d4-a716-446655440000',
+  message: 'Great work!',
   idempotencyKey: uuidv4(),
-});
+};
+
+// 2. Runtime validation via Zod schemas
+const validatedTip = PaymentSchemas.createTip.parse(tipData);
+
+// Or safe parsing with error handling
+const result = PaymentSchemas.createTip.safeParse(untrustedInput);
+if (!result.success) {
+  console.error('Validation errors:', result.error.flatten());
+}
+
+// 3. Normalizer helper for runtime validation & transformation
+const normalized = normalizeCreateTip(untrustedInput);
 ```
 
 #### Idempotent Payments
@@ -283,7 +372,7 @@ npm run type-check
 # Lint
 npm run lint
 
-# Generate docs
+# Generate docs (output: docs/, deployed to GitHub Pages by .github/workflows/docs.yml)
 npm run docs
 
 # Build
@@ -301,6 +390,7 @@ See [examples/](./examples/) for complete working examples:
 - **[Wallet Linking](./examples/vanilla/wallet.ts)** - Challenge-response verification
 - **[Payments](./examples/vanilla/payment.ts)** - Tips with idempotency
 - **[React Components](./examples/react/)** - CreateTip form, WalletStatus display
+- **[Interceptors](./examples/interceptors/)** - Logging, metrics, auth refresh, retry policy wrappers
 
 ## API Overview
 
@@ -410,6 +500,7 @@ MIT - See [LICENSE](./LICENSE) for details
 
 ## Support
 
-- 📖 [API Documentation](./docs/index.html)
+- 📖 [Published API Documentation](https://dorisio.github.io/sdk/)
+- 📖 [Local API Documentation](./docs/index.html)
 - 💬 [GitHub Issues](https://github.com/Dorisio/sdk/issues)
 - 📧 Support: support@dorisio.com

@@ -8,6 +8,7 @@
 import { Transaction, TransactionHistory } from '../types/models';
 import { normalizeTransaction, normalizeTransactionHistory } from '../utils/normalizers';
 import { DorisioClient } from '../client';
+import { RequestValidator } from '../utils/validators';
 
 export interface CreateTipRequest {
   creatorId: string;
@@ -19,6 +20,19 @@ export interface CreateTipRequest {
    * If the same key is reused, the API returns the previously created tip
    */
   idempotencyKey?: string;
+  /**
+   * IANA timezone string for the sender (e.g. "America/New_York").
+   * Used for accurate date/time display in receipts.
+   */
+  timezone?: string;
+  /**
+   * Arbitrary key-value metadata to attach to the transaction.
+   */
+  metadata?: Record<string, string>;
+  /**
+   * Tags for categorising the transaction (e.g. ["birthday", "milestone"]).
+   */
+  tags?: string[];
 }
 
 export interface BuildTransactionRequest {
@@ -86,13 +100,11 @@ export interface SubmitTransactionResponse {
  * ```
  */
 export async function createTip(this: DorisioClient, data: CreateTipRequest): Promise<Transaction> {
-  if (!data.creatorId) {
-    throw new Error('Creator ID is required to create a tip');
-  }
-
-  if (data.amount <= 0) {
-    throw new Error('Tip amount must be greater than 0');
-  }
+  RequestValidator.required(data, 'tip data');
+  RequestValidator.required(data.creatorId, 'Creator ID');
+  RequestValidator.nonEmptyString(data.creatorId, 'creatorId');
+  RequestValidator.positiveNumber(data.amount, 'Tip amount');
+  if (data.message !== undefined) RequestValidator.stringLength(data.message, 1, 500, 'message');
 
   const headers: Record<string, string> = {};
   if (data.idempotencyKey) {
@@ -106,6 +118,9 @@ export async function createTip(this: DorisioClient, data: CreateTipRequest): Pr
       creatorId: data.creatorId,
       amount: data.amount,
       message: data.message || undefined,
+      timezone: data.timezone,
+      metadata: data.metadata,
+      tags: data.tags,
     },
     { headers }
   );
@@ -138,6 +153,7 @@ export async function getTipStatus(
   this: DorisioClient,
   transactionId: string
 ): Promise<Transaction> {
+  RequestValidator.nonEmptyString(transactionId, 'transactionId');
   const response = await this.request('GET', `/api/v1/transactions/${transactionId}`);
 
   if (!response.success || !response.data) {
@@ -179,6 +195,10 @@ export async function getTransactionHistory(
     pageSize?: number;
   }
 ): Promise<TransactionHistory> {
+  if (options?.page !== undefined && options.page < 1) throw new Error('page must be at least 1');
+  if (options?.pageSize !== undefined && (options.pageSize < 1 || options.pageSize > 100)) {
+    throw new Error('pageSize must be between 1 and 100');
+  }
   const params = new URLSearchParams();
 
   if (options?.page) params.append('page', String(options.page));

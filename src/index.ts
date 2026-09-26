@@ -10,6 +10,16 @@ export const SDK_VERSION = '0.1.0';
 // Re-export client and utilities
 export { DorisioClient, type ClientConfig } from './client';
 
+// Re-export HTTP interceptors (public API for custom middleware)
+export { InterceptorManager } from './http/interceptors';
+export type {
+  RequestInterceptor,
+  ResponseInterceptor,
+  ErrorInterceptor,
+} from './http/interceptors';
+export type { RequestOptions } from './http/http-client';
+
+
 // Re-export types
 export type { ApiResponse, PaginationMeta, PaginatedResponse } from './types/api';
 export {
@@ -44,6 +54,9 @@ export type {
   TransactionWithDetails,
   TransactionHistory,
   TransactionStats,
+  CreatorListResponse,
+  WalletListResponse,
+  CreatorEarningsResponse,
   TipRequest,
   CreateTipRequest,
   Tip,
@@ -58,8 +71,16 @@ export {
   parseWebhookPayload,
   WebhookEventType,
   type WebhookPayload,
+  type WebhookVerificationOptions,
   type WebhookEventHandler,
 } from './utils/webhook-verifier';
+export {
+  createWebhookMiddleware,
+  createNextWebhookHandler,
+  createNextApiWebhookHandler,
+  type WebhookMiddlewareOptions,
+} from './http/webhook-middleware';
+export { WebhookPayloadSchema } from './utils/validation-schemas';
 
 // Re-export validation schemas for consumer use
 export {
@@ -68,14 +89,57 @@ export {
   PaymentSchemas,
   CreatorSchemas,
   WalletSchemas,
+  ApiUserSchema,
+  ApiCreatorSchema,
+  ApiWalletSchema,
+  ApiTransactionSchema,
+  ApiListCreatorsSchema,
+  ApiTransactionHistorySchema,
+  ApiTransactionStatsSchema,
+  ApiSessionSchema,
+  ApiSessionExpirySchema,
+  ApiBalanceInfoSchema,
+  ApiAccountBalanceSchema,
+  ApiCreatorEarningsSchema,
+  ApiCreatorPendingPayoutSchema,
+  ApiAccountSummarySchema,
+  ApiVerificationStatusSchema,
+  ApiWalletChallengeSchema,
+  type LoginInput,
+  type RegisterInput,
+  type WalletChallengeInput,
+  type WalletVerificationInput,
   type CreateTipInput,
   type TransactionDetails,
+  type PaymentHistoryFilterInput,
+  type CreatorProfileInput,
+  type CreatorVerificationInput,
+  type CreatorPayoutInput,
   type WalletInfo,
+  type LinkWalletInput,
+  type ApiUser,
+  type ApiCreator,
+  type ApiWallet,
+  type ApiTransaction,
+  type ApiListCreators,
+  type ApiTransactionHistory,
+  type ApiTransactionStats,
+  type ApiSession,
+  type ApiSessionExpiry,
+  type ApiBalanceInfo,
+  type ApiAccountBalance,
+  type ApiCreatorEarnings,
+  type ApiCreatorPendingPayout,
+  type ApiAccountSummary,
+  type ApiVerificationStatus,
+  type ApiWalletChallenge,
 } from './types/schemas';
 
 // Re-export sandbox utilities
 export { SandboxClient, createSandboxClient, type SandboxConfig } from './sandbox/sandbox-client';
 export * as MockData from './sandbox/mock-data';
+export { MockRouter, type SandboxHistoryEntry } from './sandbox/mock-router';
+export type { ClientMode } from './client';
 
 // Re-export query utilities
 export {
@@ -115,6 +179,8 @@ export {
   normalizeWallets,
   normalizeTransaction,
   normalizeTransactions,
+  normalizeCreateTip,
+  normalizeCreateTipInput,
 } from './utils/normalizers';
 
 // Re-export transaction normalizers
@@ -132,5 +198,10 @@ export {
 
 // Re-export client method types
 export type { BalanceInfo, AccountBalance } from './client/balance';
+export {
+  getCreators,
+  getAllTransactionHistory,
+  getAllWalletBalances,
+} from './client/batch-operations';
 export type { VerificationStatus } from './client/verification';
 export type { SessionInfo } from './client/auth';

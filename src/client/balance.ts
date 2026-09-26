@@ -5,6 +5,13 @@
  */
 
 import { DorisioClient } from '../client';
+import { RequestValidator } from '../utils/validators';
+import {
+  ApiAccountBalanceSchema,
+  ApiAccountSummarySchema,
+  ApiBalanceInfoSchema,
+  ApiCreatorPendingPayoutSchema,
+} from '../types/schemas';
 
 export interface BalanceInfo {
   walletId: string;
@@ -25,23 +32,24 @@ export interface AccountBalance {
  * Get user's total balance across all wallets
  */
 export async function getBalance(this: DorisioClient, userId: string): Promise<AccountBalance> {
-  const response = await this.request<AccountBalance>('GET', `/users/${userId}/balance`);
+  RequestValidator.nonEmptyString(userId, 'userId');
+  const response = await this.request('GET', `/users/${userId}/balance`);
 
   if (!response.success || !response.data) {
     throw new Error(`Failed to fetch balance for user: ${userId}`);
   }
 
-  const data = response.data;
+  const parsed = ApiAccountBalanceSchema.parse(response.data);
   return {
-    total: data.total || 0,
-    available: data.available || 0,
-    pending: data.pending || 0,
-    wallets: (data.wallets || []).map((w: BalanceInfo) => ({
+    total: parsed.total,
+    available: parsed.available,
+    pending: parsed.pending,
+    wallets: parsed.wallets.map((w) => ({
       walletId: w.walletId,
-      available: w.available || 0,
-      pending: w.pending || 0,
-      total: (w.available || 0) + (w.pending || 0),
-      currency: w.currency || 'USDC',
+      available: w.available,
+      pending: w.pending,
+      total: w.available + w.pending,
+      currency: w.currency,
     })),
   };
 }
@@ -53,19 +61,24 @@ export async function getWalletBalance(
   this: DorisioClient,
   walletId: string
 ): Promise<BalanceInfo> {
-  const response = await this.request<BalanceInfo>('GET', `/wallets/${walletId}/balance`);
+  RequestValidator.nonEmptyString(walletId, 'walletId');
+  const response = await this.request('GET', `/wallets/${walletId}/balance`);
 
   if (!response.success || !response.data) {
     throw new Error(`Failed to fetch wallet balance: ${walletId}`);
   }
 
-  const data = response.data;
+  const parsed = ApiBalanceInfoSchema.parse(
+    // The balance endpoint may return an object without walletId; inject it.
+    { walletId, ...(response.data as object) }
+  );
+
   return {
-    walletId,
-    available: data.available || 0,
-    pending: data.pending || 0,
-    total: (data.available || 0) + (data.pending || 0),
-    currency: data.currency || 'USDC',
+    walletId: parsed.walletId,
+    available: parsed.available,
+    pending: parsed.pending,
+    total: parsed.available + parsed.pending,
+    currency: parsed.currency,
   };
 }
 
@@ -80,21 +93,18 @@ export async function getCreatorPendingPayout(
   nextPayoutDate?: string;
   minimumThreshold: number;
 }> {
-  const response = await this.request<{
-    pending: number;
-    nextPayoutDate?: string;
-    minimumThreshold: number;
-  }>('GET', `/creators/${creatorId}/payout-pending`);
+  RequestValidator.nonEmptyString(creatorId, 'creatorId');
+  const response = await this.request('GET', `/creators/${creatorId}/payout-pending`);
 
   if (!response.success || !response.data) {
     throw new Error(`Failed to fetch pending payout for creator: ${creatorId}`);
   }
 
-  const data = response.data;
+  const parsed = ApiCreatorPendingPayoutSchema.parse(response.data);
   return {
-    pending: data.pending || 0,
-    nextPayoutDate: data.nextPayoutDate,
-    minimumThreshold: data.minimumThreshold || 10,
+    pending: parsed.pending,
+    nextPayoutDate: parsed.nextPayoutDate,
+    minimumThreshold: parsed.minimumThreshold,
   };
 }
 
@@ -102,6 +112,7 @@ export async function getCreatorPendingPayout(
  * Check if minimum payout threshold is reached
  */
 export async function canPayout(this: DorisioClient, creatorId: string): Promise<boolean> {
+  RequestValidator.nonEmptyString(creatorId, 'creatorId');
   const response = await this.request('GET', `/creators/${creatorId}/can-payout`);
 
   if (!response.success || response.data === undefined) {
@@ -123,31 +134,33 @@ export async function getAccountSummary(this: DorisioClient): Promise<{
   totalEarnings?: number;
   lastActivityDate?: string;
 }> {
-  const response = await this.request<any>('GET', '/users/me/summary');
+  const response = await this.request('GET', '/users/me/summary');
 
   if (!response.success || !response.data) {
     throw new Error('Failed to fetch account summary');
   }
 
-  const data = response.data;
+  const parsed = ApiAccountSummarySchema.parse(response.data);
+  const balanceRaw = parsed.balance ?? { total: 0, available: 0, pending: 0, wallets: [] };
+
   return {
-    userId: data.userId,
-    email: data.email,
-    role: data.role || 'fan',
+    userId: parsed.userId,
+    email: parsed.email,
+    role: parsed.role,
     balance: {
-      total: data.balance?.total || 0,
-      available: data.balance?.available || 0,
-      pending: data.balance?.pending || 0,
-      wallets: (data.balance?.wallets || []).map((w: any) => ({
+      total: balanceRaw.total,
+      available: balanceRaw.available,
+      pending: balanceRaw.pending,
+      wallets: balanceRaw.wallets.map((w) => ({
         walletId: w.walletId,
-        available: w.available || 0,
-        pending: w.pending || 0,
-        total: (w.available || 0) + (w.pending || 0),
-        currency: w.currency || 'USDC',
+        available: w.available,
+        pending: w.pending,
+        total: w.available + w.pending,
+        currency: w.currency,
       })),
     },
-    totalTipsSent: data.totalTipsSent,
-    totalEarnings: data.totalEarnings,
-    lastActivityDate: data.lastActivityDate,
+    totalTipsSent: parsed.totalTipsSent,
+    totalEarnings: parsed.totalEarnings,
+    lastActivityDate: parsed.lastActivityDate,
   };
 }

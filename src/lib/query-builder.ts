@@ -52,30 +52,28 @@ export interface PaginationResult<T> {
 export function buildQueryString(options: QueryOptions = {}): string {
   const params = new URLSearchParams();
 
-  if (options.limit) {
-    params.append('limit', String(options.limit));
-  }
-  if (options.offset) {
-    params.append('offset', String(options.offset));
-  }
-  if (options.cursor) {
-    params.append('cursor', options.cursor);
-  }
-  if (options.sort) {
-    params.append('sort', options.sort);
-  }
+  if (options.limit) params.append('limit', String(options.limit));
+  if (options.offset) params.append('offset', String(options.offset));
+  if (options.cursor) params.append('cursor', options.cursor);
+  if (options.sort) params.append('sort', options.sort);
 
-  // Add filters
   if (options.filters) {
-    Object.entries(options.filters).forEach(([key, value]) => {
+    for (const [key, value] of Object.entries(options.filters)) {
       if (value !== null && value !== undefined) {
         params.append(`filter[${key}]`, String(value));
       }
-    });
+    }
   }
 
   const query = params.toString();
   return query ? `?${query}` : '';
+}
+
+interface PaginatedApiData {
+  page?: number;
+  pageSize?: number;
+  limit?: number;
+  total?: number;
 }
 
 /**
@@ -86,23 +84,32 @@ export function parsePaginationMeta(
   response: any,
   offset?: number
 ): {
+export function parsePaginationMeta(response: PaginatedApiData): {
   page: number;
   pageSize: number;
   total: number;
   hasMore: boolean;
 } {
-  const pageSize = response.pageSize || response.limit || 20;
-  const total = response.total || 0;
-  const start = offset ?? ((response.page || 1) - 1) * pageSize;
-  const page = offset !== undefined ? Math.floor(offset / pageSize) + 1 : response.page || 1;
-
-  return { page, pageSize, total, hasMore: start + pageSize < total };
+  const page = response.page ?? 1;
+  const pageSize = response.pageSize ?? response.limit ?? 20;
+  const total = response.total ?? 0;
+  return { page, pageSize, total, hasMore: page * pageSize < total };
 }
 
-/** Encode an offset as an opaque cursor: base64 of `{"offset":n}`. */
-export function encodeCursor(offset: number): string {
-  return btoa(JSON.stringify({ offset }));
-}
+/**
+ * List tips with filtering and pagination
+ */
+export async function listTips(
+  client: QueryClient,
+  options: QueryOptions = {}
+): Promise<PaginationResult<Transaction>> {
+  const query = buildQueryString(options);
+  const response = await client.request<{
+    transactions?: Transaction[];
+    page?: number;
+    pageSize?: number;
+    total?: number;
+  }>('GET', `/api/v1/transactions/history${query}`);
 
 /** Decode a cursor created by {@link encodeCursor}. Returns null for server-defined cursors. */
 export function decodeCursor(cursor: string): { offset: number } | null {
@@ -116,33 +123,13 @@ export function decodeCursor(cursor: string): { offset: number } | null {
   }
 }
 
-/** Our own cursors carry an offset, so also send it for offset-based backends. */
-function resolveOptions(options: QueryOptions): QueryOptions {
-  if (options.cursor && options.offset === undefined) {
-    const decoded = decodeCursor(options.cursor);
-    if (decoded) return { ...options, offset: decoded.offset };
-  }
-  return options;
-}
-
-function toPage<T>(data: any, items: T[], options: QueryOptions): PaginationResult<T> {
-  const meta = parsePaginationMeta(
-    { ...data, pageSize: data.pageSize || data.limit || options.limit },
-    options.offset
-  );
-  const { page, pageSize } = meta;
-  const start = options.offset ?? (page - 1) * pageSize;
-
-  let hasMore: boolean;
-  if (typeof data.hasMore === 'boolean') hasMore = data.hasMore;
-  else if (data.nextCursor) hasMore = true;
-  else if (typeof data.total === 'number')
-    hasMore = items.length > 0 && start + items.length < data.total;
-  else hasMore = items.length > 0 && items.length >= pageSize;
+  const data = response.data ?? {};
+  const { page, pageSize, total, hasMore } = parsePaginationMeta(data);
+  const offset = options.offset ?? 0;
 
   return {
-    items,
-    total: meta.total,
+    items: data.transactions ?? [],
+    total,
     page,
     pageSize,
     hasMore,
@@ -223,93 +210,117 @@ export async function listTips<T = Tip>(
 /**
  * List creator tips with filtering and pagination
  */
-export async function listCreatorTips<T = Tip>(
-  client: ListClient,
+export async function listCreatorTips(
+  client: QueryClient,
   creatorId: string,
   options: QueryOptions = {}
-): Promise<PaginationResult<T>> {
-  return fetchPage<T>(
-    client,
-    `/api/v1/transactions/creator/${encodeURIComponent(creatorId)}`,
-    'transactions',
-    'Failed to fetch creator tips',
-    options
-  );
+): Promise<PaginationResult<Transaction>> {
+  const query = buildQueryString(options);
+  const response = await client.request<{
+    transactions?: Transaction[];
+    page?: number;
+    pageSize?: number;
+    total?: number;
+  }>('GET', `/api/v1/transactions/creator/${creatorId}${query}`);
+
+  if (!response.success) {
+    throw new Error(response.error?.message || 'Failed to fetch creator tips');
+  }
+
+  const data = response.data ?? {};
+  const { page, pageSize, total, hasMore } = parsePaginationMeta(data);
+  const offset = options.offset ?? 0;
+
+  return {
+    items: data.transactions ?? [],
+    total,
+    page,
+    pageSize,
+    hasMore,
+    nextCursor: hasMore ? String(offset + pageSize) : undefined,
+    prevCursor: offset > 0 ? String(Math.max(0, offset - pageSize)) : undefined,
+  };
 }
 
 /**
  * List creators with filtering and pagination
  */
-export async function listCreators<T = Creator>(
-  client: ListClient,
+export async function listCreators(
+  client: QueryClient,
   options: QueryOptions = {}
-): Promise<PaginationResult<T>> {
-  return fetchPage<T>(client, '/api/v1/creators', 'creators', 'Failed to fetch creators', options);
+): Promise<PaginationResult<Creator>> {
+  const query = buildQueryString(options);
+  const response = await client.request<{
+    creators?: Creator[];
+    page?: number;
+    pageSize?: number;
+    total?: number;
+  }>('GET', `/api/v1/creators${query}`);
+
+  if (!response.success) {
+    throw new Error(response.error?.message || 'Failed to fetch creators');
+  }
+
+  const data = response.data ?? {};
+  const { page, pageSize, total, hasMore } = parsePaginationMeta(data);
+  const offset = options.offset ?? 0;
+
+  return {
+    items: data.creators ?? [],
+    total,
+    page,
+    pageSize,
+    hasMore,
+    nextCursor: hasMore ? String(offset + pageSize) : undefined,
+    prevCursor: offset > 0 ? String(Math.max(0, offset - pageSize)) : undefined,
+  };
 }
 
 /**
  * List verified creators
  */
-export async function listVerifiedCreators<T = Creator>(
-  client: ListClient,
+export async function listVerifiedCreators(
+  client: QueryClient,
   options: QueryOptions = {}
-): Promise<PaginationResult<T>> {
-  return listCreators<T>(client, {
+): Promise<PaginationResult<Creator>> {
+  return listCreators(client, {
     ...options,
     filters: { ...options.filters, verified: true },
   });
 }
 
 /**
- * Stateful pager over any list function. Cursors are remembered per page, so
- * `prev()` returns to exactly the page you came from. Works with cursor-based
- * and offset-based backends.
- *
- * `next()` / `prev()` resolve to `null` at the end / start instead of refetching.
- *
- * @example
- * ```ts
- * const paginator = createPaginator<Tip>((opts) => listTips(client, opts), { limit: 10 });
- * const page1 = await paginator.next();
- * const page2 = await paginator.next();
- * await paginator.prev(); // page 1 again
- * ```
+ * Paginate through results manually
  */
 export class Paginator<T> {
-  private readonly cursors = new Map<number, string | undefined>();
-  private index = -1;
-  private last?: PaginationResult<T>;
+  private offset = 0;
+  private readonly pageSize: number;
+  private readonly endpoint: string;
+  private readonly client: QueryClient;
+  private readonly filters?: Record<string, string | number | boolean>;
 
   constructor(
-    private readonly fetcher: PageFetcher<T>,
-    private readonly options: QueryOptions = {}
+    client: QueryClient,
+    endpoint: 'tips' | 'creators' | 'creator-tips',
+    options: QueryOptions = {}
   ) {
-    this.cursors.set(
-      0,
-      options.cursor ?? (options.offset ? encodeCursor(options.offset) : undefined)
-    );
+    this.client = client;
+    this.endpoint = endpoint;
+    this.pageSize = options.limit ?? 20;
+    this.filters = options.filters;
   }
 
-  /** Fetch the next page (the first page on the first call). `null` when there is none. */
-  async next(): Promise<PaginationResult<T> | null> {
-    if (this.last && !this.last.hasMore) return null;
-    const target = this.index + 1;
-    const cursor = target === 0 ? this.cursors.get(0) : this.last?.nextCursor;
-    return this.load(target, cursor);
+  async next(): Promise<PaginationResult<T>> {
+    const result = await this.fetchPage();
+    if (result.hasMore) this.offset += this.pageSize;
+    return result;
   }
 
-  /** Fetch the previous page. `null` when already on (or before) the first page. */
-  async prev(): Promise<PaginationResult<T> | null> {
-    if (this.index <= 0) return null;
-    return this.load(this.index - 1, this.cursorFor(this.index - 1));
+  async previous(): Promise<PaginationResult<T>> {
+    this.offset = Math.max(0, this.offset - this.pageSize);
+    return this.fetchPage();
   }
 
-  /** @deprecated Use {@link Paginator.prev}. */
-  previous(): Promise<PaginationResult<T> | null> {
-    return this.prev();
-  }
-
-  /** Jump to a 1-based page number. Jumping past known pages assumes an offset-based backend. */
   async goto(pageNumber: number): Promise<PaginationResult<T>> {
     if (!Number.isInteger(pageNumber) || pageNumber < 1) {
       throw new RangeError('Page number must be an integer >= 1');
@@ -317,7 +328,6 @@ export class Paginator<T> {
     return this.load(pageNumber - 1, this.cursorFor(pageNumber - 1));
   }
 
-  /** Forget all state; the next `next()` fetches the first page again. */
   reset(): void {
     this.index = -1;
     this.last = undefined;
@@ -326,42 +336,34 @@ export class Paginator<T> {
     this.cursors.set(0, first);
   }
 
-  /** Whether `next()` can return another page (true before the first fetch). */
-  get hasNext(): boolean {
-    return this.last ? this.last.hasMore : true;
+  getOffset(): number {
+    return this.offset;
   }
 
-  /** Whether `prev()` can return a page. */
-  get hasPrev(): boolean {
-    return this.index > 0;
-  }
+  private async fetchPage(): Promise<PaginationResult<T>> {
+    const options: QueryOptions = {
+      limit: this.pageSize,
+      offset: this.offset,
+      filters: this.filters,
+    };
 
-  /** 1-based number of the current page, or 0 before the first fetch. */
-  get currentPage(): number {
-    return this.index + 1;
-  }
-
-  private cursorFor(index: number): string | undefined {
-    if (this.cursors.has(index)) return this.cursors.get(index);
-    const pageSize = this.options.limit ?? this.last?.pageSize ?? 20;
-    return encodeCursor(index * pageSize);
-  }
-
-  private async load(index: number, cursor: string | undefined): Promise<PaginationResult<T>> {
-    // Position is tracked via cursors; drop any initial offset.
-    const page = await this.fetcher({ ...this.options, offset: undefined, cursor });
-    // State only moves once the fetch succeeded.
-    this.index = index;
-    this.last = page;
-    this.cursors.set(index, cursor);
-    if (page.hasMore && page.nextCursor) this.cursors.set(index + 1, page.nextCursor);
-    return page;
+    if (this.endpoint === 'tips') {
+      return listTips(this.client, options) as Promise<PaginationResult<T>>;
+    } else if (this.endpoint === 'creators') {
+      return listCreators(this.client, options) as Promise<PaginationResult<T>>;
+    } else {
+      throw new Error(`Unknown endpoint: ${this.endpoint}`);
+    }
   }
 }
 
 /**
  * Wrap any list function in a {@link Paginator}.
  */
-export function createPaginator<T>(fetcher: PageFetcher<T>, options?: QueryOptions): Paginator<T> {
-  return new Paginator<T>(fetcher, options);
+export function createPaginator<T>(
+  client: QueryClient,
+  endpoint: 'tips' | 'creators' | 'creator-tips',
+  options?: QueryOptions
+): Paginator<T> {
+  return new Paginator(client, endpoint, options);
 }
